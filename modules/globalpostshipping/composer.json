@@ -1,0 +1,19 @@
+{
+    "name": "globalpost/globalpostshipping",
+    "description": "GlobalPost shipping integration for PrestaShop 8.",
+    "type": "prestashop-module",
+    "license": "AFL-3.0",
+    "authors": [
+        {
+            "name": "GlobalPost"
+        }
+    ],
+    "require": {
+        "php": "^8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "GlobalPostShipping\\": "src/"
+        }
+    }
+}

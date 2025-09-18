@@ -1,0 +1,7 @@
+/vendor/
+modules/globalpostshipping/vendor/
+modules/globalpostshipping/composer.lock
+*.zip
+*.tar
+.idea/
+.DS_Store
