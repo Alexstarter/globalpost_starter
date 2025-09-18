@@ -52,7 +52,8 @@ class DatabaseInstaller
                 `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (`id_globalpost_order`),
-                UNIQUE KEY `idx_globalpost_order_shipment` (`shipment_id`)
+                UNIQUE KEY `idx_globalpost_order_shipment` (`shipment_id`),
+                UNIQUE KEY `idx_globalpost_order_cart_type` (`id_cart`, `type`)
             ) ENGINE=%2$s DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci',
             $this->getTableName(),
             \pSQL($this->engine)
