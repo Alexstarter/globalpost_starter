@@ -36,7 +36,7 @@ class DatabaseInstaller
         $sql = sprintf(
             'CREATE TABLE IF NOT EXISTS `%1$s` (
                 `id_globalpost_order` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                `id_cart` INT UNSIGNED NOT NULL,
+                `id_cart` INT UNSIGNED DEFAULT NULL,
                 `id_order` INT UNSIGNED DEFAULT NULL,
                 `country_from` VARCHAR(2) NOT NULL,
                 `country_to` VARCHAR(2) NOT NULL,

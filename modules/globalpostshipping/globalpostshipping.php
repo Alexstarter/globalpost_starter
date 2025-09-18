@@ -91,6 +91,11 @@ class Globalpostshipping extends CarrierModule
     private ?LoggerInterface $logger = null;
 
     /**
+     * Flag to avoid checking the order table schema multiple times per request.
+     */
+    private bool $isOrderTableSchemaEnsured = false;
+
+    /**
      * Localized strings for the configuration interface.
      */
     private const LOCALIZED_STRINGS = [
@@ -651,6 +656,8 @@ class Globalpostshipping extends CarrierModule
 
     public function hookActionCarrierProcess(array $params)
     {
+        $this->ensureOrderTableSupportsNullCart();
+
         $cart = $this->resolveCartFromParams($params);
         if (!$cart instanceof Cart || !$cart->id) {
             return;
@@ -747,6 +754,8 @@ class Globalpostshipping extends CarrierModule
 
     public function hookActionValidateOrder(array $params)
     {
+        $this->ensureOrderTableSupportsNullCart();
+
         if (empty($params['order']) || empty($params['cart'])) {
             return;
         }
@@ -766,9 +775,43 @@ class Globalpostshipping extends CarrierModule
             'globalpost_order',
             [
                 'id_order' => (int) $order->id,
+                'id_cart' => null,
             ],
             'id_cart = ' . (int) $cart->id . ' AND type = "' . pSQL($type) . '"'
         );
+    }
+
+    private function ensureOrderTableSupportsNullCart(): void
+    {
+        if ($this->isOrderTableSchemaEnsured) {
+            return;
+        }
+
+        $this->isOrderTableSchemaEnsured = true;
+
+        if (!defined('_DB_PREFIX_')) {
+            return;
+        }
+
+        $table = _DB_PREFIX_ . 'globalpost_order';
+
+        $tableExists = Db::getInstance()->executeS('SHOW TABLES LIKE "' . pSQL($table) . '"');
+        if (!is_array($tableExists) || empty($tableExists)) {
+            return;
+        }
+
+        $definition = Db::getInstance()->executeS('SHOW COLUMNS FROM `' . pSQL($table) . "` LIKE 'id_cart'");
+        if (!is_array($definition) || empty($definition[0])) {
+            return;
+        }
+
+        $column = $definition[0];
+        $allowsNull = isset($column['Null']) && Tools::strtoupper((string) $column['Null']) === 'YES';
+        if ($allowsNull) {
+            return;
+        }
+
+        Db::getInstance()->execute('ALTER TABLE `' . pSQL($table) . '` MODIFY `id_cart` INT UNSIGNED DEFAULT NULL');
     }
 
     public function getOrderShippingCost($params, $shipping_cost)
