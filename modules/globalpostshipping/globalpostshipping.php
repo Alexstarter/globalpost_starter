@@ -19,6 +19,7 @@ use GlobalPostShipping\Installer\DatabaseInstaller;
 use GlobalPostShipping\SDK\GlobalPostClient;
 use GlobalPostShipping\SDK\LoggerInterface;
 use GlobalPostShipping\SDK\NullLogger;
+use GlobalPostShipping\Tariff\CartMeasurementCalculator;
 
 class Globalpostshipping extends CarrierModule
 {
@@ -48,6 +49,7 @@ class Globalpostshipping extends CarrierModule
         'GLOBALPOST_API_MODE',
         'GLOBALPOST_API_IDENTIFIER',
         'GLOBALPOST_COUNTRY_FROM',
+        'GLOBALPOST_TYPE_MODE',
         'GLOBALPOST_TYPE_DOCUMENTS',
         'GLOBALPOST_TYPE_PARCEL',
         'GLOBALPOST_PARCEL_LENGTH',
@@ -109,10 +111,13 @@ class Globalpostshipping extends CarrierModule
             'api.identifier' => 'API identifier',
             'country.origin' => 'Origin country (ISO code)',
             'country.origin_hint' => 'Use a two-letter ISO code, e.g. UA.',
-            'types.available' => 'Available shipment types',
-            'types.available_desc' => 'Enable the types of shipments that can be created through GlobalPost.',
+            'types.available' => 'Shipment type mode',
+            'types.available_desc' => 'Choose whether to offer both shipment types or fix a single type for all orders.',
             'types.documents' => 'Documents',
             'types.parcel' => 'Parcel',
+            'types.mode_both' => 'Offer documents and parcels',
+            'types.mode_documents' => 'Documents only',
+            'types.mode_parcel' => 'Parcels only',
             'parcel.length' => 'Default parcel length (cm)',
             'parcel.width' => 'Default parcel width (cm)',
             'parcel.height' => 'Default parcel height (cm)',
@@ -132,7 +137,9 @@ class Globalpostshipping extends CarrierModule
             'common.disabled' => 'Disabled',
             'common.enabled' => 'Enabled',
             'insurance.rule' => 'Insurance calculation rule',
-            'insurance.rule_desc' => 'Describe how the insured amount should be calculated.',
+            'insurance.rule_desc' => 'Select how the insured amount should be calculated for shipments.',
+            'insurance.rule_zero' => 'Always send 0 (no insurance)',
+            'insurance.rule_order_total' => 'Use the order total amount',
             'autocreate.label' => 'Auto-create shipment after order confirmation',
             'tracking.template' => 'Tracking URL template',
             'tracking.hint' => 'Use @ as a placeholder for the tracking number.',
@@ -157,7 +164,7 @@ class Globalpostshipping extends CarrierModule
             'error.purpose' => 'Invalid shipment purpose selected.',
             'error.currency' => 'Invalid invoice currency selected.',
             'error.insurance_option' => 'Invalid insurance option provided.',
-            'error.insurance_rule' => 'Insurance rule contains invalid characters.',
+            'error.insurance_rule' => 'Insurance rule selection is invalid.',
             'error.autocreate' => 'Invalid auto-creation option provided.',
             'error.tracking_invalid_chars' => 'Tracking URL template contains invalid characters.',
             'error.tracking_placeholder' => 'Tracking URL template must include the @ placeholder.',
@@ -180,10 +187,13 @@ class Globalpostshipping extends CarrierModule
             'api.identifier' => 'Идентификатор API',
             'country.origin' => 'Страна отправления (ISO-код)',
             'country.origin_hint' => 'Используйте двухбуквенный ISO-код, например UA.',
-            'types.available' => 'Доступные типы отправлений',
-            'types.available_desc' => 'Выберите типы отправлений, доступные для создания через GlobalPost.',
+            'types.available' => 'Режим типов отправлений',
+            'types.available_desc' => 'Выберите, предлагать ли оба типа отправлений или зафиксировать один тип для всех заказов.',
             'types.documents' => 'Документы',
             'types.parcel' => 'Посылка',
+            'types.mode_both' => 'Предлагать документы и посылки',
+            'types.mode_documents' => 'Только документы',
+            'types.mode_parcel' => 'Только посылки',
             'parcel.length' => 'Длина посылки по умолчанию (см)',
             'parcel.width' => 'Ширина посылки по умолчанию (см)',
             'parcel.height' => 'Высота посылки по умолчанию (см)',
@@ -203,7 +213,9 @@ class Globalpostshipping extends CarrierModule
             'common.disabled' => 'Выключено',
             'common.enabled' => 'Включено',
             'insurance.rule' => 'Правило расчёта страховки',
-            'insurance.rule_desc' => 'Опишите, как рассчитывать страховую сумму.',
+            'insurance.rule_desc' => 'Выберите, как рассчитывать страховую сумму для отправлений.',
+            'insurance.rule_zero' => 'Всегда передавать 0 (без страховки)',
+            'insurance.rule_order_total' => 'Использовать сумму заказа',
             'autocreate.label' => 'Автосоздание отправления после подтверждения заказа',
             'tracking.template' => 'Шаблон ссылки для отслеживания',
             'tracking.hint' => 'Используйте @ как плейсхолдер номера отслеживания.',
@@ -228,7 +240,7 @@ class Globalpostshipping extends CarrierModule
             'error.purpose' => 'Выбрана неверная цель отправления.',
             'error.currency' => 'Выбрана неверная валюта инвойса.',
             'error.insurance_option' => 'Некорректное значение опции страховки.',
-            'error.insurance_rule' => 'Правило расчёта страховки содержит недопустимые символы.',
+            'error.insurance_rule' => 'Выбрано некорректное правило расчёта страховки.',
             'error.autocreate' => 'Некорректное значение опции автосоздания.',
             'error.tracking_invalid_chars' => 'Шаблон ссылки отслеживания содержит недопустимые символы.',
             'error.tracking_placeholder' => 'Шаблон ссылки отслеживания должен содержать плейсхолдер @.',
@@ -251,10 +263,13 @@ class Globalpostshipping extends CarrierModule
             'api.identifier' => 'Ідентифікатор API',
             'country.origin' => 'Країна відправлення (ISO-код)',
             'country.origin_hint' => 'Використовуйте дволітерний ISO-код, наприклад UA.',
-            'types.available' => 'Доступні типи відправлень',
-            'types.available_desc' => 'Оберіть типи відправлень, доступні для створення через GlobalPost.',
+            'types.available' => 'Режим типів відправлень',
+            'types.available_desc' => 'Визначте, чи пропонувати обидва типи відправлень, чи зафіксувати один тип для всіх замовлень.',
             'types.documents' => 'Документи',
             'types.parcel' => 'Посилка',
+            'types.mode_both' => 'Пропонувати документи та посилки',
+            'types.mode_documents' => 'Лише документи',
+            'types.mode_parcel' => 'Лише посилки',
             'parcel.length' => 'Довжина посилки за замовчуванням (см)',
             'parcel.width' => 'Ширина посилки за замовчуванням (см)',
             'parcel.height' => 'Висота посилки за замовчуванням (см)',
@@ -274,7 +289,9 @@ class Globalpostshipping extends CarrierModule
             'common.disabled' => 'Вимкнено',
             'common.enabled' => 'Увімкнено',
             'insurance.rule' => 'Правило розрахунку страхування',
-            'insurance.rule_desc' => 'Опишіть, як обчислюється страхова сума.',
+            'insurance.rule_desc' => 'Оберіть спосіб розрахунку страхової суми для відправлень.',
+            'insurance.rule_zero' => 'Завжди передавати 0 (без страхування)',
+            'insurance.rule_order_total' => "Використовувати суму замовлення",
             'autocreate.label' => 'Автозапуск створення відправлення після підтвердження замовлення',
             'tracking.template' => 'Шаблон посилання для відстеження',
             'tracking.hint' => 'Використовуйте @ як плейсхолдер номера відстеження.',
@@ -299,7 +316,7 @@ class Globalpostshipping extends CarrierModule
             'error.purpose' => 'Обрано некоректну мету відправлення.',
             'error.currency' => 'Обрано некоректну валюту інвойсу.',
             'error.insurance_option' => 'Некоректне значення опції страхування.',
-            'error.insurance_rule' => 'Правило розрахунку страхування містить недопустимі символи.',
+            'error.insurance_rule' => 'Обрано некоректне правило розрахунку страхування.',
             'error.autocreate' => 'Некоректне значення опції автозапуску.',
             'error.tracking_invalid_chars' => 'Шаблон посилання відстеження містить недопустимі символи.',
             'error.tracking_placeholder' => 'Шаблон посилання відстеження має містити плейсхолдер @.',
@@ -407,6 +424,7 @@ class Globalpostshipping extends CarrierModule
             'GLOBALPOST_API_MODE' => 0,
             'GLOBALPOST_API_IDENTIFIER' => '',
             'GLOBALPOST_COUNTRY_FROM' => 'UA',
+            'GLOBALPOST_TYPE_MODE' => 'parcel',
             'GLOBALPOST_TYPE_DOCUMENTS' => 0,
             'GLOBALPOST_TYPE_PARCEL' => 1,
             'GLOBALPOST_PARCEL_LENGTH' => '0',
@@ -416,7 +434,7 @@ class Globalpostshipping extends CarrierModule
             'GLOBALPOST_PURPOSE' => 'sale',
             'GLOBALPOST_CURRENCY_INVOICE' => 'UAH',
             'GLOBALPOST_INSURANCE_ENABLED' => 0,
-            'GLOBALPOST_INSURANCE_RULE' => 'declared_value',
+            'GLOBALPOST_INSURANCE_RULE' => 'order_total',
             'GLOBALPOST_AUTO_CREATE_SHIPMENT' => 1,
             'GLOBALPOST_TRACKING_TEMPLATE' => 'https://track.globalpost.com.ua/@',
             'GLOBALPOST_DOCUMENT_LANGUAGE' => 'uk',
@@ -800,6 +818,17 @@ class Globalpostshipping extends CarrierModule
 
     private function getEnabledShipmentTypes(): array
     {
+        $mode = (string) $this->getConfigurationValue('GLOBALPOST_TYPE_MODE');
+
+        switch ($mode) {
+            case 'both':
+                return ['documents', 'parcel'];
+            case 'documents':
+                return ['documents'];
+            case 'parcel':
+                return ['parcel'];
+        }
+
         $types = [];
 
         if ((int) $this->getConfigurationValue('GLOBALPOST_TYPE_DOCUMENTS') === 1) {
@@ -937,7 +966,32 @@ class Globalpostshipping extends CarrierModule
             return null;
         }
 
-        $weight = max((float) $cart->getTotalWeight(), 0.01);
+        $products = [];
+        if (method_exists($cart, 'getProducts')) {
+            try {
+                $products = $cart->getProducts(true);
+            } catch (Throwable $exception) {
+                $products = [];
+            }
+        }
+
+        if (!is_array($products)) {
+            $products = [];
+        }
+
+        $calculator = new CartMeasurementCalculator($products);
+        $weight = $calculator->calculateTotalWeight();
+        if ($weight <= 0.0) {
+            $weight = (float) $cart->getTotalWeight();
+        }
+
+        if ($weight <= 0.0) {
+            $weight = 0.0;
+        }
+
+        if ($weight < 0.01) {
+            $weight = 0.01;
+        }
 
         $request = [
             'country_from' => $countryFrom,
@@ -947,28 +1001,44 @@ class Globalpostshipping extends CarrierModule
         ];
 
         if ($type === 'parcel') {
-            $length = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_LENGTH');
-            $width = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_WIDTH');
-            $height = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_HEIGHT');
+            $dimensions = $calculator->calculateDimensions();
 
-            if ($length > 0) {
+            $length = $dimensions['length'] ?? null;
+            $width = $dimensions['width'] ?? null;
+            $height = $dimensions['height'] ?? null;
+
+            $defaultLength = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_LENGTH');
+            $defaultWidth = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_WIDTH');
+            $defaultHeight = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_HEIGHT');
+
+            if (($length === null || $length <= 0.0) && $defaultLength > 0.0) {
+                $length = $defaultLength;
+            }
+
+            if (($width === null || $width <= 0.0) && $defaultWidth > 0.0) {
+                $width = $defaultWidth;
+            }
+
+            if (($height === null || $height <= 0.0) && $defaultHeight > 0.0) {
+                $height = $defaultHeight;
+            }
+
+            if ($length !== null && $length > 0.0) {
                 $request['length'] = Tools::ps_round($length, 2);
             }
 
-            if ($width > 0) {
+            if ($width !== null && $width > 0.0) {
                 $request['width'] = Tools::ps_round($width, 2);
             }
 
-            if ($height > 0) {
+            if ($height !== null && $height > 0.0) {
                 $request['height'] = Tools::ps_round($height, 2);
             }
         }
 
-        if ((int) $this->getConfigurationValue('GLOBALPOST_INSURANCE_ENABLED') === 1) {
-            $insuredAmount = (float) $cart->getOrderTotal(true, Cart::BOTH_WITHOUT_SHIPPING);
-            if ($insuredAmount > 0) {
-                $request['insured_amount'] = Tools::ps_round($insuredAmount, 2);
-            }
+        $insuredAmount = $this->determineInsuredAmount($cart);
+        if ($insuredAmount !== null) {
+            $request['insured_amount'] = $insuredAmount;
         }
 
         $signature = md5(json_encode($request));
@@ -979,6 +1049,26 @@ class Globalpostshipping extends CarrierModule
             'country_from' => $countryFrom,
             'country_to' => $countryTo,
         ];
+    }
+
+    private function determineInsuredAmount(Cart $cart): ?float
+    {
+        if ((int) $this->getConfigurationValue('GLOBALPOST_INSURANCE_ENABLED') !== 1) {
+            return null;
+        }
+
+        $rule = (string) $this->getConfigurationValue('GLOBALPOST_INSURANCE_RULE');
+
+        switch ($rule) {
+            case 'zero':
+                return Tools::ps_round(0.0, 2);
+            case 'order_total':
+                $insuredAmount = (float) $cart->getOrderTotal(true, Cart::BOTH_WITHOUT_SHIPPING);
+
+                return $insuredAmount > 0 ? Tools::ps_round($insuredAmount, 2) : null;
+            default:
+                return null;
+        }
     }
 
     private function normalizeTariffOptions(array $response): array
@@ -1268,14 +1358,28 @@ class Globalpostshipping extends CarrierModule
 
         $country = Tools::strtoupper((string) Tools::getValue('GLOBALPOST_COUNTRY_FROM'));
 
+        $mode = (string) Tools::getValue('GLOBALPOST_TYPE_MODE', 'parcel');
+        if (!in_array($mode, ['both', 'documents', 'parcel'], true)) {
+            $mode = 'parcel';
+        }
+
+        $documentsEnabled = ($mode === 'both' || $mode === 'documents') ? 1 : 0;
+        $parcelEnabled = ($mode === 'both' || $mode === 'parcel') ? 1 : 0;
+
+        $insuranceRule = (string) Tools::getValue('GLOBALPOST_INSURANCE_RULE', 'order_total');
+        if (!in_array($insuranceRule, ['zero', 'order_total'], true)) {
+            $insuranceRule = 'order_total';
+        }
+
         return [
             'GLOBALPOST_API_TOKEN_TEST' => (string) Tools::getValue('GLOBALPOST_API_TOKEN_TEST'),
             'GLOBALPOST_API_TOKEN_PROD' => (string) Tools::getValue('GLOBALPOST_API_TOKEN_PROD'),
             'GLOBALPOST_API_MODE' => (int) Tools::getValue('GLOBALPOST_API_MODE'),
             'GLOBALPOST_API_IDENTIFIER' => (string) Tools::getValue('GLOBALPOST_API_IDENTIFIER'),
             'GLOBALPOST_COUNTRY_FROM' => $country,
-            'GLOBALPOST_TYPE_DOCUMENTS' => Tools::getValue('GLOBALPOST_TYPES_documents') ? 1 : 0,
-            'GLOBALPOST_TYPE_PARCEL' => Tools::getValue('GLOBALPOST_TYPES_parcel') ? 1 : 0,
+            'GLOBALPOST_TYPE_MODE' => $mode,
+            'GLOBALPOST_TYPE_DOCUMENTS' => $documentsEnabled,
+            'GLOBALPOST_TYPE_PARCEL' => $parcelEnabled,
             'GLOBALPOST_PARCEL_LENGTH' => $length,
             'GLOBALPOST_PARCEL_WIDTH' => $width,
             'GLOBALPOST_PARCEL_HEIGHT' => $height,
@@ -1283,7 +1387,7 @@ class Globalpostshipping extends CarrierModule
             'GLOBALPOST_PURPOSE' => Tools::getValue('GLOBALPOST_PURPOSE'),
             'GLOBALPOST_CURRENCY_INVOICE' => Tools::getValue('GLOBALPOST_CURRENCY_INVOICE'),
             'GLOBALPOST_INSURANCE_ENABLED' => (int) Tools::getValue('GLOBALPOST_INSURANCE_ENABLED', 0),
-            'GLOBALPOST_INSURANCE_RULE' => Tools::getValue('GLOBALPOST_INSURANCE_RULE'),
+            'GLOBALPOST_INSURANCE_RULE' => $insuranceRule,
             'GLOBALPOST_AUTO_CREATE_SHIPMENT' => (int) Tools::getValue('GLOBALPOST_AUTO_CREATE_SHIPMENT', 0),
             'GLOBALPOST_TRACKING_TEMPLATE' => Tools::getValue('GLOBALPOST_TRACKING_TEMPLATE'),
             'GLOBALPOST_DOCUMENT_LANGUAGE' => Tools::getValue('GLOBALPOST_DOCUMENT_LANGUAGE'),
@@ -1317,7 +1421,7 @@ class Globalpostshipping extends CarrierModule
             $errors[] = 'error.country';
         }
 
-        if (!$formData['GLOBALPOST_TYPE_DOCUMENTS'] && !$formData['GLOBALPOST_TYPE_PARCEL']) {
+        if (!in_array($formData['GLOBALPOST_TYPE_MODE'], ['both', 'documents', 'parcel'], true)) {
             $errors[] = 'error.types';
         }
 
@@ -1348,7 +1452,7 @@ class Globalpostshipping extends CarrierModule
             $errors[] = 'error.insurance_option';
         }
 
-        if ($formData['GLOBALPOST_INSURANCE_RULE'] !== '' && !Validate::isCleanHtml($formData['GLOBALPOST_INSURANCE_RULE'])) {
+        if (!in_array($formData['GLOBALPOST_INSURANCE_RULE'], ['zero', 'order_total'], true)) {
             $errors[] = 'error.insurance_rule';
         }
 
@@ -1475,19 +1579,14 @@ class Globalpostshipping extends CarrierModule
                         'hint' => $this->translate('country.origin_hint'),
                     ],
                     [
-                        'type' => 'checkbox',
+                        'type' => 'select',
                         'label' => $this->translate('types.available'),
-                        'name' => 'GLOBALPOST_TYPES',
-                        'values' => [
+                        'name' => 'GLOBALPOST_TYPE_MODE',
+                        'options' => [
                             'query' => [
-                                [
-                                    'id_option' => 'documents',
-                                    'name' => $this->translate('types.documents'),
-                                ],
-                                [
-                                    'id_option' => 'parcel',
-                                    'name' => $this->translate('types.parcel'),
-                                ],
+                                ['id_option' => 'both', 'name' => $this->translate('types.mode_both')],
+                                ['id_option' => 'documents', 'name' => $this->translate('types.mode_documents')],
+                                ['id_option' => 'parcel', 'name' => $this->translate('types.mode_parcel')],
                             ],
                             'id' => 'id_option',
                             'name' => 'name',
@@ -1558,9 +1657,17 @@ class Globalpostshipping extends CarrierModule
                         'desc' => $this->translate('insurance.desc'),
                     ],
                     [
-                        'type' => 'text',
+                        'type' => 'select',
                         'label' => $this->translate('insurance.rule'),
                         'name' => 'GLOBALPOST_INSURANCE_RULE',
+                        'options' => [
+                            'query' => [
+                                ['id_option' => 'order_total', 'name' => $this->translate('insurance.rule_order_total')],
+                                ['id_option' => 'zero', 'name' => $this->translate('insurance.rule_zero')],
+                            ],
+                            'id' => 'id_option',
+                            'name' => 'name',
+                        ],
                         'desc' => $this->translate('insurance.rule_desc'),
                     ],
                     [
@@ -1650,9 +1757,6 @@ class Globalpostshipping extends CarrierModule
         foreach (self::CONFIGURATION_KEYS as $key) {
             $values[$key] = $this->getConfigurationValue($key);
         }
-
-        $values['GLOBALPOST_TYPES_documents'] = (bool) $values['GLOBALPOST_TYPE_DOCUMENTS'];
-        $values['GLOBALPOST_TYPES_parcel'] = (bool) $values['GLOBALPOST_TYPE_PARCEL'];
 
         return $values;
     }
