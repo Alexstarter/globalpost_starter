@@ -1,0 +1,94 @@
+{
+    "shipment_logs": [
+        {
+            "status": "success",
+            "timestamp": "2024-03-18T10:42:11+00:00",
+            "request": {
+                "lang": "en",
+                "number_auto": 1,
+                "order_id": "ABCD1234",
+                "is_international": 1,
+                "weight_type": 1024,
+                "weight": 1.25,
+                "places": 1,
+                "about": "Order #ABCD1234",
+                "contragent_key": "TARIFF-KEY-001",
+                "international_tariff_id": 42,
+                "price": 899.5,
+                "insured": 1,
+                "insured_amount": 899.5,
+                "sender_name": "GlobalPost Shop",
+                "sender_phone": "********56",
+                "sender_email": "s***@example.com",
+                "sender_country": "UA",
+                "sender_city": "Kyiv",
+                "sender_address": "1 Volodymyrska St",
+                "sender_zip": "01001",
+                "sender_state": "KV",
+                "recipient_name": "John Doe",
+                "recipient_phone": "********89",
+                "recipient_email": "j***@customer.com",
+                "recipient_country": "US",
+                "recipient_city": "New York",
+                "recipient_address": "350 Fifth Avenue",
+                "recipient_zip": "10001",
+                "recipient_state": "NY",
+                "length": 30.0,
+                "width": 20.0,
+                "height": 15.0,
+                "purpose_parcel": "sale",
+                "incoterms": "DAP",
+                "currency_invoice": "USD",
+                "name_item": [
+                    "T-Shirt",
+                    "Coffee Mug"
+                ],
+                "count_items": [
+                    2,
+                    1
+                ],
+                "unit": [
+                    "pcs",
+                    "pcs"
+                ],
+                "price_unit": [
+                    25.0,
+                    15.0
+                ],
+                "weight_unit": [
+                    0.35,
+                    0.15
+                ],
+                "made_country": [
+                    "UA",
+                    "UA"
+                ],
+                "sum_invoice": 65.0,
+                "sum_weight": 0.85
+            },
+            "response": {
+                "id": "SH123456789",
+                "number": "GP000000001",
+                "status": "created"
+            },
+            "meta": {
+                "shipment_id": "SH123456789",
+                "ttn": "GP000000001"
+            }
+        },
+        {
+            "status": "failed",
+            "timestamp": "2024-03-18T10:15:00+00:00",
+            "request": {
+                "lang": "en",
+                "order_id": "ABCD1234",
+                "contragent_key": "TARIFF-KEY-001"
+            },
+            "response": {
+                "error": "validation_error",
+                "message": "Weight must be greater than zero"
+            },
+            "message": "GlobalPost shipment creation failed: Weight must be greater than zero"
+        }
+    ]
+}

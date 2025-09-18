@@ -26,7 +26,13 @@ The database table created by the module is dropped during uninstallation.
 
 ## Configuration
 
-The current version of the module does not expose any configuration options. Future iterations will introduce settings for API credentials and shipment preferences.
+After installing the module open the GlobalPost configuration page in the back office and provide the required API credentials. The form allows you to define sender contact details, enable or disable automatic shipment creation, configure default parcel dimensions, customs declaration defaults, and the tracking URL template.
+
+### Automatic shipment creation
+
+When the option **Auto-create shipment after order confirmation** is enabled the module will automatically call the GlobalPost `POST /api/create-short-order` endpoint once an order that uses a GlobalPost carrier is validated. The generated shipment identifier and TTN are saved inside the `ps_globalpost_order` table and applied as the order tracking number. Each API request and response is logged in a sanitized JSON payload stored alongside the order record for troubleshooting.
+
+An example of the stored log structure is available in [`docs/logs/sample_auto_shipment_log.json`](../../docs/logs/sample_auto_shipment_log.json).
 
 ## Development
 

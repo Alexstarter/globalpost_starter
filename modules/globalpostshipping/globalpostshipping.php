@@ -17,6 +17,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
 
 use GlobalPostShipping\Installer\DatabaseInstaller;
 use GlobalPostShipping\SDK\GlobalPostClient;
+use GlobalPostShipping\SDK\GlobalPostClientException;
 use GlobalPostShipping\SDK\LoggerInterface;
 use GlobalPostShipping\SDK\NullLogger;
 use GlobalPostShipping\Tariff\CartMeasurementCalculator;
@@ -779,6 +780,761 @@ class Globalpostshipping extends CarrierModule
             ],
             'id_cart = ' . (int) $cart->id . ' AND type = "' . pSQL($type) . '"'
         );
+
+        if ((int) $this->getConfigurationValue('GLOBALPOST_AUTO_CREATE_SHIPMENT') !== 1) {
+            return;
+        }
+
+        try {
+            $this->createShipmentForOrder($order, $cart, $type);
+        } catch (Throwable $exception) {
+            $this->logError('Failed to auto-create GlobalPost shipment: ' . $exception->getMessage());
+        }
+    }
+
+    private function createShipmentForOrder(Order $order, Cart $cart, string $type): void
+    {
+        $record = $this->getOrderRecordByOrderId((int) $order->id, $type);
+        if (!$record) {
+            return;
+        }
+
+        if (!empty($record['shipment_id']) || !empty($record['ttn'])) {
+            return;
+        }
+
+        $client = $this->createApiClient();
+        if ($client === null) {
+            $this->logError('GlobalPost API token is not configured.');
+
+            return;
+        }
+
+        $formData = $this->buildShipmentFormData($order, $cart, $type, $record);
+        if ($formData === null) {
+            $this->logError('Failed to assemble GlobalPost shipment payload for order #' . (int) $order->id . '.');
+
+            return;
+        }
+
+        try {
+            $response = $client->createShortOrder($formData);
+        } catch (GlobalPostClientException $exception) {
+            $responseBody = $exception->getResponseBody();
+            $decoded = $responseBody ? json_decode($responseBody, true) : null;
+            $this->storeShipmentLog($record, $formData, is_array($decoded) ? $decoded : $responseBody, 'failed', $exception->getMessage());
+            $this->logError('GlobalPost shipment creation failed: ' . $exception->getMessage());
+
+            return;
+        } catch (Throwable $exception) {
+            $this->storeShipmentLog($record, $formData, null, 'failed', $exception->getMessage());
+            $this->logError('GlobalPost shipment creation failed: ' . $exception->getMessage());
+
+            return;
+        }
+
+        $shipmentId = isset($response['id']) ? (string) $response['id'] : '';
+        $ttn = isset($response['number']) ? (string) $response['number'] : '';
+
+        if ($shipmentId === '' || $ttn === '') {
+            $this->storeShipmentLog($record, $formData, $response, 'failed', 'GlobalPost response missing shipment identifiers.');
+            $this->logError('GlobalPost shipment creation failed: response did not contain shipment identifiers.');
+
+            return;
+        }
+
+        $this->updateTrackingNumber($order, $ttn);
+
+        $this->storeShipmentLog($record, $formData, $response, 'success', null, [
+            'shipment_id' => $shipmentId,
+            'ttn' => $ttn,
+        ]);
+
+        Db::getInstance()->update(
+            'globalpost_order',
+            [
+                'shipment_id' => pSQL($shipmentId),
+                'ttn' => pSQL($ttn),
+            ],
+            'id_globalpost_order = ' . (int) $record['id_globalpost_order']
+        );
+    }
+
+    private function getOrderRecordByOrderId(int $orderId, string $type): ?array
+    {
+        $query = new DbQuery();
+        $query->select('*');
+        $query->from('globalpost_order');
+        $query->where('id_order = ' . (int) $orderId);
+        $query->where("type = '" . pSQL($type) . "'");
+        $query->orderBy('id_globalpost_order DESC');
+        $query->limit(1);
+
+        $row = Db::getInstance()->getRow($query);
+
+        return $row ?: null;
+    }
+
+    private function buildShipmentFormData(Order $order, Cart $cart, string $type, array $record): ?array
+    {
+        $selectedOption = $this->resolveSelectedOptionFromRecord($record);
+        if ($selectedOption === null || empty($selectedOption['contragent_key'])) {
+            return null;
+        }
+
+        $deliveryAddress = new Address((int) $order->id_address_delivery);
+        if (!Validate::isLoadedObject($deliveryAddress)) {
+            return null;
+        }
+
+        $customer = new Customer((int) $order->id_customer);
+        if (!Validate::isLoadedObject($customer)) {
+            return null;
+        }
+
+        $sender = $this->buildSenderDetails();
+        if ($sender === null) {
+            return null;
+        }
+
+        $context = $this->buildTariffContext($cart, $type);
+        $requestContext = is_array($context) && isset($context['request']) && is_array($context['request']) ? $context['request'] : [];
+
+        $weight = $this->extractWeightFromContext($requestContext);
+
+        $orderProducts = $this->getOrderProductsRaw($order);
+        $calculatorProducts = $this->mapProductsForCalculator($orderProducts);
+        $calculator = new CartMeasurementCalculator($calculatorProducts);
+
+        $calculatedWeight = $calculator->calculateTotalWeight();
+        if ($calculatedWeight > 0.0) {
+            $weight = max($weight, $calculatedWeight);
+        }
+
+        if ($weight <= 0.0) {
+            $weight = (float) $cart->getTotalWeight();
+        }
+
+        if ($weight <= 0.0 && method_exists($order, 'getTotalWeight')) {
+            $weight = max($weight, (float) $order->getTotalWeight());
+        }
+
+        if ($weight < 0.01) {
+            $weight = 0.01;
+        }
+
+        $insuredAmount = isset($requestContext['insured_amount']) ? (float) $requestContext['insured_amount'] : null;
+        if ($insuredAmount === null) {
+            $insuredAmount = $this->determineInsuredAmount($cart);
+        }
+
+        $insuredAmount = $insuredAmount !== null ? Tools::ps_round((float) $insuredAmount, 2) : null;
+
+        $price = $selectedOption['price_uah'] ?? $record['price_uah'] ?? ($selectedOption['price'] ?? null);
+        $price = $price !== null ? Tools::ps_round((float) $price, 2) : null;
+
+        $formData = [
+            'lang' => $this->resolveDocumentLanguage((string) $this->getConfigurationValue('GLOBALPOST_DOCUMENT_LANGUAGE')),
+            'number_auto' => 1,
+            'order_id' => (string) $order->reference,
+            'is_international' => 1,
+            'weight_type' => $this->mapWeightType($type),
+            'weight' => Tools::ps_round($weight, 3),
+            'places' => 1,
+            'about' => sprintf('Order #%s', $order->reference),
+            'contragent_key' => (string) $selectedOption['contragent_key'],
+        ];
+
+        if (!empty($selectedOption['international_tariff_id'])) {
+            $formData['international_tariff_id'] = (int) $selectedOption['international_tariff_id'];
+        } elseif (!empty($record['international_tariff_id'])) {
+            $formData['international_tariff_id'] = (int) $record['international_tariff_id'];
+        }
+
+        if ($price !== null) {
+            $formData['price'] = $price;
+        }
+
+        $formData['insured'] = $insuredAmount !== null && $insuredAmount > 0 ? 1 : 0;
+        $formData['insured_amount'] = $insuredAmount !== null ? $insuredAmount : 0.0;
+
+        $formData += $this->formatSenderData($sender);
+        $formData += $this->formatRecipientData($deliveryAddress, $customer);
+
+        if ($type === 'parcel') {
+            $dimensions = $this->extractDimensionsFromContext($requestContext, $calculator);
+            foreach ($dimensions as $key => $value) {
+                $formData[$key] = $value;
+            }
+
+            $customs = $this->buildCustomsPayload($orderProducts, $order, $formData['weight']);
+            if (!empty($customs)) {
+                $formData += $customs;
+            }
+        }
+
+        return $formData;
+    }
+
+    private function resolveSelectedOptionFromRecord(array $record): ?array
+    {
+        $payload = [];
+
+        if (!empty($record['payload'])) {
+            $payload = $this->decodePayload((string) $record['payload']);
+        }
+
+        if (!empty($payload['selected_option']) && is_array($payload['selected_option'])) {
+            return $payload['selected_option'];
+        }
+
+        if (!empty($payload['options']) && is_array($payload['options']) && !empty($record['tariff_key'])) {
+            foreach ($payload['options'] as $option) {
+                if (is_array($option) && isset($option['key']) && (string) $option['key'] === (string) $record['tariff_key']) {
+                    return $option;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function buildSenderDetails(): ?array
+    {
+        $identifier = trim((string) $this->getConfigurationValue('GLOBALPOST_API_IDENTIFIER'));
+        $name = $identifier !== '' ? $identifier : (string) Configuration::get('PS_SHOP_NAME');
+
+        $address1 = (string) Configuration::get('PS_SHOP_ADDR1');
+        $address2 = (string) Configuration::get('PS_SHOP_ADDR2');
+        $address = trim($address1 . ' ' . $address2);
+
+        $city = (string) Configuration::get('PS_SHOP_CITY');
+        $postcode = (string) Configuration::get('PS_SHOP_ZIP');
+
+        $countryIso = '';
+        $countryId = (int) Configuration::get('PS_SHOP_COUNTRY_ID');
+        if ($countryId > 0) {
+            $iso = Country::getIsoById($countryId);
+            if (is_string($iso)) {
+                $countryIso = $this->formatCountryIso($iso);
+            }
+        }
+
+        if ($countryIso === '') {
+            $countryIso = $this->formatCountryIso((string) $this->getConfigurationValue('GLOBALPOST_COUNTRY_FROM'));
+        }
+
+        $stateIso = '';
+        $stateId = (int) Configuration::get('PS_SHOP_STATE_ID');
+        if ($stateId > 0) {
+            $stateIso = $this->resolveStateIso($stateId);
+        }
+
+        if ($name === '' || $address === '' || $city === '' || $countryIso === '') {
+            return null;
+        }
+
+        $phone = (string) Configuration::get('PS_SHOP_PHONE');
+        if ($phone === '') {
+            $phone = (string) Configuration::get('PS_SHOP_MOBILE');
+        }
+
+        return [
+            'name' => $name,
+            'phone' => $phone,
+            'email' => (string) Configuration::get('PS_SHOP_EMAIL'),
+            'address' => $address,
+            'city' => $city,
+            'postcode' => $postcode,
+            'country' => $countryIso,
+            'state' => $stateIso,
+        ];
+    }
+
+    private function extractWeightFromContext(array $context): float
+    {
+        if (isset($context['weight'])) {
+            if (is_array($context['weight'])) {
+                $value = reset($context['weight']);
+
+                return (float) ($value ?: 0.0);
+            }
+
+            if (is_scalar($context['weight'])) {
+                return (float) $context['weight'];
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function getOrderProductsRaw(Order $order): array
+    {
+        $products = [];
+
+        if (method_exists($order, 'getProducts')) {
+            try {
+                $products = $order->getProducts();
+            } catch (Throwable $exception) {
+                $products = [];
+            }
+        }
+
+        return is_array($products) ? $products : [];
+    }
+
+    private function mapProductsForCalculator(array $products): array
+    {
+        $mapped = [];
+
+        foreach ($products as $product) {
+            $quantity = (int) ($product['product_quantity'] ?? $product['quantity'] ?? 0);
+            $weight = isset($product['product_weight']) ? (float) $product['product_weight'] : (float) ($product['weight'] ?? 0.0);
+            $length = isset($product['product_length']) ? (float) $product['product_length'] : (float) ($product['length'] ?? ($product['depth'] ?? 0.0));
+            $width = isset($product['product_width']) ? (float) $product['product_width'] : (float) ($product['width'] ?? 0.0);
+            $height = isset($product['product_height']) ? (float) $product['product_height'] : (float) ($product['height'] ?? 0.0);
+
+            $mapped[] = [
+                'cart_quantity' => $quantity,
+                'quantity' => $quantity,
+                'weight' => $weight,
+                'length' => $length,
+                'width' => $width,
+                'height' => $height,
+            ];
+        }
+
+        return $mapped;
+    }
+
+    private function formatSenderData(array $sender): array
+    {
+        return [
+            'sender_name' => $this->transliterateForApi($sender['name']),
+            'sender_phone' => $this->normalizePhone($sender['phone']),
+            'sender_email' => $sender['email'],
+            'sender_country' => $this->formatCountryIso($sender['country']),
+            'sender_city' => $this->transliterateForApi($sender['city']),
+            'sender_address' => $this->transliterateForApi($sender['address']),
+            'sender_zip' => $sender['postcode'],
+            'sender_state' => $sender['state'],
+        ];
+    }
+
+    private function formatRecipientData(Address $address, Customer $customer): array
+    {
+        $name = trim($address->firstname . ' ' . $address->lastname);
+        if ($name === '') {
+            $name = trim($customer->firstname . ' ' . $customer->lastname);
+        }
+
+        $phone = $address->phone_mobile !== '' ? $address->phone_mobile : $address->phone;
+        $email = Validate::isEmail($customer->email) ? $customer->email : '';
+
+        $countryIso = $this->formatCountryIso(Country::getIsoById((int) $address->id_country));
+        $stateIso = $address->id_state ? $this->resolveStateIso((int) $address->id_state) : '';
+
+        return [
+            'recipient_name' => $this->transliterateForApi($name),
+            'recipient_phone' => $this->normalizePhone($phone),
+            'recipient_email' => $email,
+            'recipient_country' => $countryIso,
+            'recipient_city' => $this->transliterateForApi($address->city),
+            'recipient_address' => $this->transliterateForApi(trim($address->address1 . ' ' . $address->address2)),
+            'recipient_zip' => $address->postcode,
+            'recipient_state' => $stateIso,
+        ];
+    }
+
+    private function extractDimensionsFromContext(array $context, CartMeasurementCalculator $calculator): array
+    {
+        $dimensions = [];
+
+        foreach (['length', 'width', 'height'] as $key) {
+            if (isset($context[$key]) && is_scalar($context[$key])) {
+                $value = (float) $context[$key];
+                if ($value > 0.0) {
+                    $dimensions[$key] = Tools::ps_round($value, 2);
+                }
+            }
+        }
+
+        if (count($dimensions) < 3) {
+            $calculated = $calculator->calculateDimensions();
+            foreach (['length', 'width', 'height'] as $key) {
+                if (!isset($dimensions[$key]) && isset($calculated[$key]) && $calculated[$key] > 0.0) {
+                    $dimensions[$key] = Tools::ps_round((float) $calculated[$key], 2);
+                }
+            }
+        }
+
+        return $dimensions;
+    }
+
+    private function buildCustomsPayload(array $orderProducts, Order $order, float $totalWeight): array
+    {
+        $purpose = (string) $this->getConfigurationValue('GLOBALPOST_PURPOSE');
+        if ($purpose === '') {
+            $purpose = 'sale';
+        }
+
+        $incoterms = (string) $this->getConfigurationValue('GLOBALPOST_INCOTERMS');
+        if ($incoterms === '') {
+            $incoterms = 'DAP';
+        }
+
+        $currencyIso = (string) $this->getConfigurationValue('GLOBALPOST_CURRENCY_INVOICE');
+        if (!in_array($currencyIso, ['UAH', 'USD', 'EUR'], true)) {
+            $currencyIso = 'UAH';
+        }
+
+        $invoiceCurrencyId = Currency::getIdByIsoCode($currencyIso);
+        $invoiceCurrency = $invoiceCurrencyId ? new Currency($invoiceCurrencyId) : null;
+        $orderCurrency = new Currency((int) $order->id_currency);
+
+        $items = [
+            'name_item' => [],
+            'count_items' => [],
+            'unit' => [],
+            'price_unit' => [],
+            'weight_unit' => [],
+            'made_country' => [],
+        ];
+
+        $hsCodes = [];
+        $sumInvoice = 0.0;
+        $sumWeight = 0.0;
+
+        foreach ($orderProducts as $product) {
+            $quantity = (int) ($product['product_quantity'] ?? $product['quantity'] ?? 0);
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $name = $product['product_name'] ?? $product['name'] ?? 'Item';
+            $name = $this->transliterateForApi($name);
+
+            $unitWeight = isset($product['product_weight']) ? (float) $product['product_weight'] : (float) ($product['weight'] ?? 0.0);
+            if ($unitWeight <= 0.0) {
+                $unitWeight = max(0.01, $totalWeight > 0 ? $totalWeight / max(1, $quantity) : 0.01);
+            }
+
+            $unitPrice = $this->extractOrderProductUnitPrice($product);
+            $unitPrice = $this->convertPriceToCurrency($unitPrice, $orderCurrency, $invoiceCurrency);
+
+            $origin = $this->resolveProductOriginCountry($product);
+
+            $items['name_item'][] = Tools::substr($name, 0, 200);
+            $items['count_items'][] = $quantity;
+            $items['unit'][] = 'pcs';
+            $items['price_unit'][] = Tools::ps_round($unitPrice, 2);
+            $items['weight_unit'][] = Tools::ps_round($unitWeight, 3);
+            $items['made_country'][] = $origin;
+
+            $hsCode = '';
+            if (!empty($product['product_hs_code'])) {
+                $hsCode = preg_replace('/[^A-Za-z0-9]/', '', (string) $product['product_hs_code']);
+            } elseif (!empty($product['hs_code'])) {
+                $hsCode = preg_replace('/[^A-Za-z0-9]/', '', (string) $product['hs_code']);
+            }
+            $hsCodes[] = $hsCode !== null ? (string) $hsCode : '';
+
+            $sumInvoice += $unitPrice * $quantity;
+            $sumWeight += $unitWeight * $quantity;
+        }
+
+        $sumInvoice = Tools::ps_round($sumInvoice, 2);
+
+        $sumWeight = $sumWeight > 0.0 ? min($sumWeight, $totalWeight) : $totalWeight;
+        if ($sumWeight < 0.0) {
+            $sumWeight = 0.0;
+        }
+
+        $result = [
+            'purpose_parcel' => $purpose,
+            'incoterms' => $incoterms,
+            'currency_invoice' => $currencyIso,
+            'name_item' => $items['name_item'],
+            'count_items' => $items['count_items'],
+            'unit' => $items['unit'],
+            'price_unit' => $items['price_unit'],
+            'weight_unit' => $items['weight_unit'],
+            'made_country' => $items['made_country'],
+            'sum_invoice' => $sumInvoice,
+            'sum_weight' => Tools::ps_round($sumWeight, 3),
+        ];
+
+        if (count(array_filter($hsCodes)) > 0) {
+            $result['hs_code'] = $hsCodes;
+        }
+
+        return $result;
+    }
+
+    private function mapWeightType(string $type): int
+    {
+        return $type === 'documents' ? 0 : 1024;
+    }
+
+    private function resolveDocumentLanguage(string $value): string
+    {
+        $value = Tools::strtolower($value);
+
+        return in_array($value, ['uk', 'ru', 'en'], true) ? $value : 'en';
+    }
+
+    private function transliterateForApi(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT', $value);
+        if ($transliterated === false || $transliterated === '') {
+            $transliterated = Tools::replaceAccentedChars($value);
+        }
+
+        $transliterated = preg_replace('/[^A-Za-z0-9\s\-\.,]/', ' ', (string) $transliterated);
+        if ($transliterated === null) {
+            $transliterated = $value;
+        }
+
+        return trim(preg_replace('/\s+/', ' ', (string) $transliterated));
+    }
+
+    private function normalizePhone(string $phone): string
+    {
+        $phone = trim($phone);
+        if ($phone === '') {
+            return '';
+        }
+
+        $hasPlus = Tools::substr($phone, 0, 1) === '+';
+        $digits = preg_replace('/\D+/', '', $phone);
+        if ($digits === null) {
+            $digits = '';
+        }
+
+        return ($hasPlus ? '+' : '') . $digits;
+    }
+
+    private function formatCountryIso($iso): string
+    {
+        if (!is_string($iso) || $iso === '') {
+            return '';
+        }
+
+        return Tools::strtoupper(Tools::substr($iso, 0, 2));
+    }
+
+    private function resolveStateIso(int $stateId): string
+    {
+        if ($stateId <= 0) {
+            return '';
+        }
+
+        $state = new State($stateId);
+        if (!Validate::isLoadedObject($state)) {
+            return '';
+        }
+
+        return $state->iso_code !== '' ? Tools::strtoupper($state->iso_code) : '';
+    }
+
+    private function extractOrderProductUnitPrice(array $product): float
+    {
+        if (isset($product['unit_price_tax_incl'])) {
+            return (float) $product['unit_price_tax_incl'];
+        }
+
+        if (isset($product['price_wt'])) {
+            return (float) $product['price_wt'];
+        }
+
+        if (isset($product['total_price_tax_incl'], $product['product_quantity']) && (int) $product['product_quantity'] > 0) {
+            return (float) $product['total_price_tax_incl'] / (int) $product['product_quantity'];
+        }
+
+        if (isset($product['total_price_tax_excl'], $product['product_quantity']) && (int) $product['product_quantity'] > 0) {
+            return (float) $product['total_price_tax_excl'] / (int) $product['product_quantity'];
+        }
+
+        return 0.0;
+    }
+
+    private function convertPriceToCurrency(float $amount, ?Currency $from = null, ?Currency $to = null): float
+    {
+        if ($to === null || $from === null) {
+            return $amount;
+        }
+
+        if (!Validate::isLoadedObject($from) || !Validate::isLoadedObject($to)) {
+            return $amount;
+        }
+
+        return (float) Tools::convertPriceFull($amount, $from, $to);
+    }
+
+    private function resolveProductOriginCountry(array $product): string
+    {
+        $candidates = [
+            $product['product_country_of_origin'] ?? null,
+            $product['product_country'] ?? null,
+            $product['country_of_origin'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $iso = $this->formatCountryIso($candidate);
+            if ($iso !== '') {
+                return $iso;
+            }
+        }
+
+        if (!empty($product['id_country'])) {
+            $iso = $this->formatCountryIso(Country::getIsoById((int) $product['id_country']));
+            if ($iso !== '') {
+                return $iso;
+            }
+        }
+
+        return $this->formatCountryIso((string) $this->getConfigurationValue('GLOBALPOST_COUNTRY_FROM'));
+    }
+
+    private function storeShipmentLog(array $record, array $request, $response, string $status, ?string $message = null, array $meta = []): void
+    {
+        if (empty($record['id_globalpost_order'])) {
+            return;
+        }
+
+        $payloadRaw = Db::getInstance()->getValue(
+            'SELECT payload FROM `' . _DB_PREFIX_ . 'globalpost_order` WHERE id_globalpost_order = ' . (int) $record['id_globalpost_order']
+        );
+
+        $payload = $this->decodePayload($payloadRaw ?: null);
+        if (!isset($payload['shipment_logs']) || !is_array($payload['shipment_logs'])) {
+            $payload['shipment_logs'] = [];
+        }
+
+        $entry = [
+            'status' => $status,
+            'timestamp' => date('c'),
+            'request' => $this->sanitizeShipmentData($request),
+        ];
+
+        if ($response !== null) {
+            $entry['response'] = is_array($response) ? $this->sanitizeShipmentData($response) : (string) $response;
+        }
+
+        if ($message !== null) {
+            $entry['message'] = $message;
+        }
+
+        if (!empty($meta)) {
+            $entry['meta'] = $meta;
+        }
+
+        $payload['shipment_logs'][] = $entry;
+
+        $encoded = json_encode($payload);
+        if ($encoded === false) {
+            return;
+        }
+
+        Db::getInstance()->update(
+            'globalpost_order',
+            ['payload' => pSQL($encoded, true)],
+            'id_globalpost_order = ' . (int) $record['id_globalpost_order']
+        );
+    }
+
+    private function sanitizeShipmentData($data)
+    {
+        if (is_array($data)) {
+            $sanitized = [];
+            foreach ($data as $key => $value) {
+                if (is_array($value)) {
+                    $sanitized[$key] = $this->sanitizeShipmentData($value);
+                    continue;
+                }
+
+                if (is_scalar($value) || $value === null) {
+                    if (in_array((string) $key, ['sender_phone', 'recipient_phone'], true)) {
+                        $sanitized[$key] = $this->maskPhone((string) $value);
+                    } elseif (in_array((string) $key, ['sender_email', 'recipient_email'], true)) {
+                        $sanitized[$key] = $this->maskEmail((string) $value);
+                    } else {
+                        $sanitized[$key] = $value;
+                    }
+                }
+            }
+
+            return $sanitized;
+        }
+
+        if (is_scalar($data) || $data === null) {
+            return $data;
+        }
+
+        return '';
+    }
+
+    private function maskPhone(string $phone): string
+    {
+        $phone = trim($phone);
+        if ($phone === '') {
+            return '';
+        }
+
+        $length = Tools::strlen($phone);
+        if ($length <= 4) {
+            return str_repeat('*', $length);
+        }
+
+        return str_repeat('*', $length - 2) . Tools::substr($phone, -2);
+    }
+
+    private function maskEmail(string $email): string
+    {
+        if (!Validate::isEmail($email)) {
+            return $email;
+        }
+
+        [$local, $domain] = explode('@', $email, 2);
+        $visible = Tools::substr($local, 0, 1);
+        $maskedLocal = $visible . str_repeat('*', max(0, Tools::strlen($local) - 1));
+
+        return $maskedLocal . '@' . $domain;
+    }
+
+    private function updateTrackingNumber(Order $order, string $ttn): void
+    {
+        $trackingNumber = trim($ttn);
+        if ($trackingNumber === '') {
+            return;
+        }
+
+        Db::getInstance()->update(
+            'orders',
+            ['shipping_number' => pSQL($trackingNumber)],
+            'id_order = ' . (int) $order->id
+        );
+
+        $orderCarrierId = (int) Db::getInstance()->getValue(
+            'SELECT id_order_carrier FROM `' . _DB_PREFIX_ . 'order_carrier` WHERE id_order = ' . (int) $order->id . ' ORDER BY id_order_carrier DESC'
+        );
+
+        if ($orderCarrierId > 0) {
+            $orderCarrier = new OrderCarrier($orderCarrierId);
+            if (Validate::isLoadedObject($orderCarrier)) {
+                $orderCarrier->tracking_number = $trackingNumber;
+                try {
+                    $orderCarrier->save();
+                } catch (Throwable $exception) {
+                    // ignore persistence errors for tracking update
+                }
+            }
+        }
     }
 
     private function ensureOrderTableSupportsNullCart(): void
