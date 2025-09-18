@@ -16,8 +16,11 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
 }
 
 use GlobalPostShipping\Installer\DatabaseInstaller;
+use GlobalPostShipping\SDK\GlobalPostClient;
+use GlobalPostShipping\SDK\LoggerInterface;
+use GlobalPostShipping\SDK\NullLogger;
 
-class Globalpostshipping extends Module
+class Globalpostshipping extends CarrierModule
 {
     /**
      * List of hooks registered by the module.
@@ -25,16 +28,21 @@ class Globalpostshipping extends Module
      * @var array
      */
     private $hooks = [
+        'actionCarrierProcess',
         'actionValidateOrder',
         'actionOrderGridDefinitionModifier',
         'actionOrderGridDataModifier',
         'displayAdminOrderMainBottom',
+        'displayCarrierExtraContent',
+        'actionGetDeliveryOptions',
     ];
 
     /**
      * Module configuration keys grouped for convenience.
      */
     private const CONFIGURATION_KEYS = [
+        'GLOBALPOST_CARRIER_DOCUMENTS_ID',
+        'GLOBALPOST_CARRIER_PARCEL_ID',
         'GLOBALPOST_API_TOKEN_TEST',
         'GLOBALPOST_API_TOKEN_PROD',
         'GLOBALPOST_API_MODE',
@@ -56,10 +64,38 @@ class Globalpostshipping extends Module
     ];
 
     /**
+     * Mapping between shipment types and configuration keys that store carrier IDs.
+     */
+    private const SHIPMENT_TYPE_CONFIGURATION = [
+        'documents' => 'GLOBALPOST_CARRIER_DOCUMENTS_ID',
+        'parcel' => 'GLOBALPOST_CARRIER_PARCEL_ID',
+    ];
+
+    /**
+     * Supported shipment types.
+     */
+    private const SUPPORTED_SHIPMENT_TYPES = ['documents', 'parcel'];
+
+    /**
+     * In-memory cache of tariff options per cart and shipment type.
+     *
+     * @var array<int, array<string, array<int, array<string, mixed>>>>
+     */
+    private $tariffOptionsCache = [];
+
+    /**
+     * Logger used when instantiating the API client.
+     */
+    private ?LoggerInterface $logger = null;
+
+    /**
      * Localized strings for the configuration interface.
      */
     private const LOCALIZED_STRINGS = [
         'en' => [
+            'carrier.documents_name' => 'GlobalPost Documents',
+            'carrier.parcel_name' => 'GlobalPost Parcel',
+            'carrier.default_delay' => 'International delivery',
             'settings.legend' => 'GlobalPost settings',
             'api.notice_html' => 'API endpoints are selected automatically based on the chosen mode.<br><strong>%s</strong>: %s<br><strong>%s</strong>: %s',
             'api.test_url' => 'Test URL',
@@ -106,6 +142,10 @@ class Globalpostshipping extends Module
             'language.en' => 'English',
             'button.save' => 'Save',
             'settings.saved' => 'Settings updated successfully.',
+            'front.select_tariff' => 'Select a GlobalPost tariff option',
+            'front.option_label' => '%s – %s UAH (%s EUR)',
+            'front.option_label_no_eur' => '%s – %s UAH',
+            'front.estimate_days' => 'Estimated delivery: %s days',
             'error.test_token' => 'Test API token contains invalid characters.',
             'error.prod_token' => 'Production API token contains invalid characters.',
             'error.api_mode' => 'Invalid API mode provided.',
@@ -124,6 +164,9 @@ class Globalpostshipping extends Module
             'error.document_language' => 'Invalid document language selected.',
         ],
         'ru' => [
+            'carrier.documents_name' => 'GlobalPost Документы',
+            'carrier.parcel_name' => 'GlobalPost Посылка',
+            'carrier.default_delay' => 'Международная доставка',
             'settings.legend' => 'Настройки GlobalPost',
             'api.notice_html' => 'API-адреса выбираются автоматически в зависимости от режима.<br><strong>%s</strong>: %s<br><strong>%s</strong>: %s',
             'api.test_url' => 'Тестовый URL',
@@ -170,6 +213,10 @@ class Globalpostshipping extends Module
             'language.en' => 'Английский',
             'button.save' => 'Сохранить',
             'settings.saved' => 'Настройки успешно сохранены.',
+            'front.select_tariff' => 'Выберите тариф GlobalPost',
+            'front.option_label' => '%s – %s грн (%s евро)',
+            'front.option_label_no_eur' => '%s – %s грн',
+            'front.estimate_days' => 'Прогноз доставки: %s дн.',
             'error.test_token' => 'Тестовый API-токен содержит недопустимые символы.',
             'error.prod_token' => 'Рабочий API-токен содержит недопустимые символы.',
             'error.api_mode' => 'Указан неверный режим API.',
@@ -188,6 +235,9 @@ class Globalpostshipping extends Module
             'error.document_language' => 'Выбран неверный язык документов.',
         ],
         'uk' => [
+            'carrier.documents_name' => 'GlobalPost Документи',
+            'carrier.parcel_name' => 'GlobalPost Посилка',
+            'carrier.default_delay' => 'Міжнародна доставка',
             'settings.legend' => 'Налаштування GlobalPost',
             'api.notice_html' => 'API-адреси вибираються автоматично залежно від режиму.<br><strong>%s</strong>: %s<br><strong>%s</strong>: %s',
             'api.test_url' => 'Тестовий URL',
@@ -234,6 +284,10 @@ class Globalpostshipping extends Module
             'language.en' => 'Англійська',
             'button.save' => 'Зберегти',
             'settings.saved' => 'Налаштування успішно збережено.',
+            'front.select_tariff' => 'Оберіть тариф GlobalPost',
+            'front.option_label' => '%s – %s грн (%s євро)',
+            'front.option_label_no_eur' => '%s – %s грн',
+            'front.estimate_days' => 'Орієнтовна доставка: %s дн.',
             'error.test_token' => 'Тестовий API-токен містить недопустимі символи.',
             'error.prod_token' => 'Робочий API-токен містить недопустимі символи.',
             'error.api_mode' => 'Вказано некоректний режим API.',
@@ -277,7 +331,8 @@ class Globalpostshipping extends Module
         return parent::install()
             && $this->registerHooks()
             && $this->getDatabaseInstaller()->install()
-            && $this->installConfiguration();
+            && $this->installConfiguration()
+            && $this->installCarriers();
     }
 
     /**
@@ -285,7 +340,8 @@ class Globalpostshipping extends Module
      */
     public function uninstall()
     {
-        return $this->removeConfiguration()
+        return $this->removeCarriers()
+            && $this->removeConfiguration()
             && $this->getDatabaseInstaller()->uninstall()
             && parent::uninstall();
     }
@@ -344,6 +400,8 @@ class Globalpostshipping extends Module
     private function installConfiguration(): bool
     {
         $defaults = [
+            'GLOBALPOST_CARRIER_DOCUMENTS_ID' => 0,
+            'GLOBALPOST_CARRIER_PARCEL_ID' => 0,
             'GLOBALPOST_API_TOKEN_TEST' => '',
             'GLOBALPOST_API_TOKEN_PROD' => '',
             'GLOBALPOST_API_MODE' => 0,
@@ -374,6 +432,51 @@ class Globalpostshipping extends Module
     }
 
     /**
+     * Creates the carrier entries required for the module.
+     */
+    private function installCarriers(): bool
+    {
+        $success = true;
+
+        foreach (self::SUPPORTED_SHIPMENT_TYPES as $type) {
+            $success = $this->ensureCarrierExists($type) && $success;
+        }
+
+        return $success;
+    }
+
+    /**
+     * Marks module carriers as deleted during uninstall.
+     */
+    private function removeCarriers(): bool
+    {
+        $success = true;
+
+        foreach (self::SUPPORTED_SHIPMENT_TYPES as $type) {
+            $configKey = self::SHIPMENT_TYPE_CONFIGURATION[$type] ?? null;
+            if ($configKey === null) {
+                continue;
+            }
+
+            $carrierId = (int) $this->getConfigurationValue($configKey);
+            if ($carrierId <= 0) {
+                continue;
+            }
+
+            $carrier = new Carrier($carrierId);
+            if (!Validate::isLoadedObject($carrier)) {
+                continue;
+            }
+
+            $carrier->active = 0;
+            $carrier->deleted = 1;
+            $success = $carrier->update() && $success;
+        }
+
+        return $success;
+    }
+
+    /**
      * Removes module configuration on uninstall.
      */
     private function removeConfiguration(): bool
@@ -386,6 +489,761 @@ class Globalpostshipping extends Module
 
         return true;
     }
+
+    private function ensureCarrierExists(string $type): bool
+    {
+        $configKey = self::SHIPMENT_TYPE_CONFIGURATION[$type] ?? null;
+        if ($configKey === null) {
+            return false;
+        }
+
+        $carrierId = (int) $this->getConfigurationValue($configKey);
+        if ($carrierId > 0) {
+            $carrier = new Carrier($carrierId);
+            if (Validate::isLoadedObject($carrier)) {
+                return true;
+            }
+        }
+
+        $carrier = $this->createCarrier($type);
+        if ($carrier === null) {
+            return false;
+        }
+
+        $this->updateConfigurationValue($configKey, (int) $carrier->id);
+
+        return true;
+    }
+
+    private function createCarrier(string $type): ?Carrier
+    {
+        $carrier = new Carrier();
+        $carrier->name = $this->getCarrierName($type);
+        $carrier->id_tax_rules_group = 0;
+        $carrier->active = 1;
+        $carrier->deleted = 0;
+        $carrier->shipping_handling = false;
+        $carrier->range_behavior = 0;
+        $carrier->is_module = true;
+        $carrier->shipping_external = true;
+        $carrier->external_module_name = $this->name;
+        $carrier->need_range = true;
+        $carrier->url = (string) $this->getConfigurationValue('GLOBALPOST_TRACKING_TEMPLATE');
+        $carrier->shipping_method = Carrier::SHIPPING_METHOD_WEIGHT;
+
+        foreach (Language::getLanguages(false) as $language) {
+            $carrier->delay[(int) $language['id_lang']] = $this->translate('carrier.default_delay');
+        }
+
+        if (!$carrier->add()) {
+            return null;
+        }
+
+        $this->assignCarrierToGroups($carrier);
+        $this->assignCarrierToZones($carrier);
+        $this->initializeCarrierRanges($carrier);
+
+        return $carrier;
+    }
+
+    private function assignCarrierToGroups(Carrier $carrier): void
+    {
+        $groups = Group::getGroups((int) $this->context->language->id);
+        if (!is_array($groups)) {
+            return;
+        }
+
+        $groupIds = array_map(static function (array $group): int {
+            return (int) $group['id_group'];
+        }, $groups);
+
+        if (method_exists($carrier, 'setGroups')) {
+            $carrier->setGroups($groupIds);
+
+            return;
+        }
+
+        Db::getInstance()->delete('carrier_group', 'id_carrier = ' . (int) $carrier->id);
+
+        foreach ($groupIds as $groupId) {
+            Db::getInstance()->insert('carrier_group', [
+                'id_carrier' => (int) $carrier->id,
+                'id_group' => (int) $groupId,
+            ]);
+        }
+    }
+
+    private function assignCarrierToZones(Carrier $carrier): void
+    {
+        $zones = Zone::getZones(true);
+        if (!is_array($zones)) {
+            return;
+        }
+
+        foreach ($zones as $zone) {
+            $carrier->addZone((int) $zone['id_zone']);
+        }
+    }
+
+    private function initializeCarrierRanges(Carrier $carrier): void
+    {
+        $rangeWeight = new RangeWeight();
+        $rangeWeight->id_carrier = (int) $carrier->id;
+        $rangeWeight->delimiter1 = 0;
+        $rangeWeight->delimiter2 = 1000;
+
+        if (!$rangeWeight->add()) {
+            return;
+        }
+
+        $zones = Zone::getZones(true);
+        if (!is_array($zones)) {
+            return;
+        }
+
+        Db::getInstance()->delete('delivery', 'id_carrier = ' . (int) $carrier->id);
+
+        $idShop = isset($this->context->shop->id) ? (int) $this->context->shop->id : 0;
+        $idShopGroup = isset($this->context->shop->id_shop_group) ? (int) $this->context->shop->id_shop_group : 0;
+
+        foreach ($zones as $zone) {
+            Db::getInstance()->insert('delivery', [
+                'id_carrier' => (int) $carrier->id,
+                'id_range_price' => null,
+                'id_range_weight' => (int) $rangeWeight->id,
+                'id_zone' => (int) $zone['id_zone'],
+                'price' => 0,
+                'id_shop' => $idShop,
+                'id_shop_group' => $idShopGroup,
+            ]);
+        }
+    }
+
+    private function getCarrierName(string $type): string
+    {
+        switch ($type) {
+            case 'documents':
+                return $this->translate('carrier.documents_name');
+            case 'parcel':
+                return $this->translate('carrier.parcel_name');
+            default:
+                return 'GlobalPost';
+        }
+    }
+
+    public function hookActionCarrierProcess(array $params)
+    {
+        $cart = $this->resolveCartFromParams($params);
+        if (!$cart instanceof Cart || !$cart->id) {
+            return;
+        }
+
+        $submitted = Tools::getValue('globalpost_option');
+        if (!is_array($submitted)) {
+            $submitted = [];
+        }
+
+        foreach ($this->getEnabledShipmentTypes() as $type) {
+            $carrierId = $this->getCarrierIdForType($type);
+            if ($carrierId <= 0) {
+                continue;
+            }
+
+            $tariffData = $this->getTariffDataForCart($cart, $type);
+            $options = $tariffData['options'];
+            $context = $tariffData['context'];
+
+            if ($context === null || empty($options)) {
+                $this->clearCartSelection((int) $cart->id, $type);
+                continue;
+            }
+
+            $record = $this->getCartRecord((int) $cart->id, $type);
+            $requestedKey = isset($submitted[$type]) ? (string) $submitted[$type] : null;
+            $selectedOption = $this->determineSelectedOption($record, $options, $requestedKey);
+
+            if ($selectedOption === null) {
+                $this->clearCartSelection((int) $cart->id, $type);
+                continue;
+            }
+
+            $this->tariffOptionsCache[(int) $cart->id][$type] = [
+                'signature' => $context['signature'],
+                'options' => $options,
+            ];
+
+            $this->saveCartSelection($cart, $type, $selectedOption, $context, $options, $record);
+        }
+    }
+
+    public function hookActionGetDeliveryOptions(array $params)
+    {
+        $cart = $this->resolveCartFromParams($params);
+        if (!$cart instanceof Cart || !$cart->id) {
+            return;
+        }
+
+        foreach ($this->getEnabledShipmentTypes() as $type) {
+            $this->getTariffDataForCart($cart, $type);
+        }
+    }
+
+    public function hookDisplayCarrierExtraContent(array $params)
+    {
+        if (empty($params['carrier']['id'])) {
+            return '';
+        }
+
+        $carrierId = (int) $params['carrier']['id'];
+        $type = $this->resolveCarrierType($carrierId);
+        if ($type === null) {
+            return '';
+        }
+
+        $cart = $this->context->cart;
+        if (!$cart instanceof Cart || !$cart->id) {
+            return '';
+        }
+
+        $tariffData = $this->getTariffDataForCart($cart, $type);
+        $options = $tariffData['options'];
+        if (empty($options)) {
+            return '';
+        }
+
+        $record = $this->getCartRecord((int) $cart->id, $type);
+        $selectedKey = null;
+        if (is_array($record) && !empty($record['tariff_key'])) {
+            $selectedKey = (string) $record['tariff_key'];
+        }
+
+        $this->context->smarty->assign([
+            'globalpost_title' => $this->translate('front.select_tariff'),
+            'globalpost_options' => $this->formatOptionsForTemplate($options),
+            'globalpost_selected_key' => $selectedKey,
+            'globalpost_type' => $type,
+        ]);
+
+        return $this->display(__FILE__, 'views/templates/hook/carrier_options.tpl');
+    }
+
+    public function hookActionValidateOrder(array $params)
+    {
+        if (empty($params['order']) || empty($params['cart'])) {
+            return;
+        }
+
+        $order = $params['order'];
+        $cart = $params['cart'];
+        if (!$order instanceof Order || !$cart instanceof Cart) {
+            return;
+        }
+
+        $type = $this->resolveCarrierType((int) $order->id_carrier);
+        if ($type === null) {
+            return;
+        }
+
+        Db::getInstance()->update(
+            'globalpost_order',
+            [
+                'id_order' => (int) $order->id,
+            ],
+            'id_cart = ' . (int) $cart->id . ' AND type = "' . pSQL($type) . '"'
+        );
+    }
+
+    public function getOrderShippingCost($params, $shipping_cost)
+    {
+        $cart = $params instanceof Cart ? $params : $this->resolveCartFromParams($params);
+        if (!$cart instanceof Cart || !$cart->id) {
+            return false;
+        }
+
+        $carrierId = $this->getCurrentCarrierId();
+        if ($carrierId <= 0) {
+            return false;
+        }
+
+        $type = $this->resolveCarrierType($carrierId);
+        if ($type === null) {
+            return false;
+        }
+
+        $record = $this->getCartRecord((int) $cart->id, $type);
+        if (!is_array($record) || $record['price_uah'] === null) {
+            return false;
+        }
+
+        $priceUah = (float) $record['price_uah'];
+
+        return $this->convertPriceForCart($priceUah, $cart);
+    }
+
+    public function getOrderShippingCostExternal($params)
+    {
+        return $this->getOrderShippingCost($params, 0);
+    }
+
+    private function resolveCartFromParams(array $params)
+    {
+        if (!empty($params['cart']) && $params['cart'] instanceof Cart) {
+            return $params['cart'];
+        }
+
+        if ($this->context->cart instanceof Cart) {
+            return $this->context->cart;
+        }
+
+        return null;
+    }
+
+    private function getEnabledShipmentTypes(): array
+    {
+        $types = [];
+
+        if ((int) $this->getConfigurationValue('GLOBALPOST_TYPE_DOCUMENTS') === 1) {
+            $types[] = 'documents';
+        }
+
+        if ((int) $this->getConfigurationValue('GLOBALPOST_TYPE_PARCEL') === 1) {
+            $types[] = 'parcel';
+        }
+
+        if (empty($types)) {
+            $types[] = 'parcel';
+        }
+
+        return $types;
+    }
+
+    private function getCarrierIdForType(string $type): int
+    {
+        $configKey = self::SHIPMENT_TYPE_CONFIGURATION[$type] ?? null;
+        if ($configKey === null) {
+            return 0;
+        }
+
+        return (int) $this->getConfigurationValue($configKey);
+    }
+
+    private function resolveCarrierType(int $carrierId): ?string
+    {
+        foreach (self::SHIPMENT_TYPE_CONFIGURATION as $type => $configKey) {
+            if ((int) $this->getConfigurationValue($configKey) === $carrierId) {
+                return $type;
+            }
+        }
+
+        return null;
+    }
+
+    private function getCurrentCarrierId(): int
+    {
+        if (property_exists($this, 'id_carrier') && (int) $this->id_carrier > 0) {
+            return (int) $this->id_carrier;
+        }
+
+        if ($this->context->cart instanceof Cart && (int) $this->context->cart->id_carrier > 0) {
+            return (int) $this->context->cart->id_carrier;
+        }
+
+        return 0;
+    }
+
+    private function getTariffDataForCart(Cart $cart, string $type): array
+    {
+        $context = $this->buildTariffContext($cart, $type);
+        if ($context === null) {
+            return [
+                'options' => [],
+                'context' => null,
+            ];
+        }
+
+        $cartId = (int) $cart->id;
+        $cacheEntry = $this->tariffOptionsCache[$cartId][$type] ?? null;
+        if (is_array($cacheEntry) && $cacheEntry['signature'] === $context['signature']) {
+            return [
+                'options' => $cacheEntry['options'],
+                'context' => $context,
+            ];
+        }
+
+        $record = $this->getCartRecord($cartId, $type);
+        if (is_array($record) && !empty($record['payload'])) {
+            $payload = $this->decodePayload($record['payload']);
+            if (!empty($payload['signature']) && $payload['signature'] === $context['signature'] && !empty($payload['options']) && is_array($payload['options'])) {
+                $this->tariffOptionsCache[$cartId][$type] = [
+                    'signature' => $context['signature'],
+                    'options' => $payload['options'],
+                ];
+
+                return [
+                    'options' => $payload['options'],
+                    'context' => $context,
+                ];
+            }
+        }
+
+        $client = $this->createApiClient();
+        if ($client === null) {
+            $this->logError('GlobalPost API token is not configured.');
+
+            return [
+                'options' => [],
+                'context' => $context,
+            ];
+        }
+
+        try {
+            $response = $client->getOptions($context['request']);
+            $options = $this->normalizeTariffOptions($response);
+        } catch (Throwable $exception) {
+            $this->logError('Failed to fetch GlobalPost tariffs: ' . $exception->getMessage());
+            $options = [];
+        }
+
+        $this->tariffOptionsCache[$cartId][$type] = [
+            'signature' => $context['signature'],
+            'options' => $options,
+        ];
+
+        return [
+            'options' => $options,
+            'context' => $context,
+        ];
+    }
+
+    private function buildTariffContext(Cart $cart, string $type): ?array
+    {
+        $countryFrom = Tools::strtoupper((string) $this->getConfigurationValue('GLOBALPOST_COUNTRY_FROM'));
+        if (Tools::strlen($countryFrom) !== 2) {
+            return null;
+        }
+
+        $addressId = (int) $cart->id_address_delivery;
+        if ($addressId <= 0) {
+            return null;
+        }
+
+        $address = new Address($addressId);
+        if (!Validate::isLoadedObject($address)) {
+            return null;
+        }
+
+        $countryTo = Country::getIsoById((int) $address->id_country);
+        if (!$countryTo) {
+            return null;
+        }
+
+        $weight = max((float) $cart->getTotalWeight(), 0.01);
+
+        $request = [
+            'country_from' => $countryFrom,
+            'country_to' => $countryTo,
+            'weight_type' => $type,
+            'weight' => [Tools::ps_round($weight, 3)],
+        ];
+
+        if ($type === 'parcel') {
+            $length = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_LENGTH');
+            $width = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_WIDTH');
+            $height = (float) $this->getConfigurationValue('GLOBALPOST_PARCEL_HEIGHT');
+
+            if ($length > 0) {
+                $request['length'] = Tools::ps_round($length, 2);
+            }
+
+            if ($width > 0) {
+                $request['width'] = Tools::ps_round($width, 2);
+            }
+
+            if ($height > 0) {
+                $request['height'] = Tools::ps_round($height, 2);
+            }
+        }
+
+        if ((int) $this->getConfigurationValue('GLOBALPOST_INSURANCE_ENABLED') === 1) {
+            $insuredAmount = (float) $cart->getOrderTotal(true, Cart::BOTH_WITHOUT_SHIPPING);
+            if ($insuredAmount > 0) {
+                $request['insured_amount'] = Tools::ps_round($insuredAmount, 2);
+            }
+        }
+
+        $signature = md5(json_encode($request));
+
+        return [
+            'request' => $request,
+            'signature' => $signature,
+            'country_from' => $countryFrom,
+            'country_to' => $countryTo,
+        ];
+    }
+
+    private function normalizeTariffOptions(array $response): array
+    {
+        $options = [];
+
+        foreach ($response as $item) {
+            if (!is_array($item) || !isset($item['key'])) {
+                continue;
+            }
+
+            $priceUah = null;
+            if (isset($item['price_uah'])) {
+                $priceUah = (float) $item['price_uah'];
+            } elseif (isset($item['price'])) {
+                $priceUah = (float) $item['price'];
+            }
+
+            $priceEur = isset($item['price_eur']) ? (float) $item['price_eur'] : null;
+            if ($priceEur === null && $priceUah !== null) {
+                $converted = $this->convertPriceBetweenCurrencies($priceUah, 'UAH', 'EUR');
+                if ($converted !== null) {
+                    $priceEur = $converted;
+                }
+            }
+
+            $options[] = [
+                'key' => (string) $item['key'],
+                'price_uah' => $priceUah,
+                'price_eur' => $priceEur,
+                'estimate_in_days' => isset($item['estimate_in_days']) ? (int) $item['estimate_in_days'] : null,
+                'international_tariff_id' => isset($item['international_tariff_id']) ? (int) $item['international_tariff_id'] : null,
+                'contragent_key' => isset($item['contragent_key']) ? (string) $item['contragent_key'] : null,
+            ];
+        }
+
+        usort($options, static function (array $left, array $right): int {
+            $leftPrice = $left['price_uah'] ?? PHP_INT_MAX;
+            $rightPrice = $right['price_uah'] ?? PHP_INT_MAX;
+
+            if ($leftPrice === $rightPrice) {
+                return strcmp((string) $left['key'], (string) $right['key']);
+            }
+
+            return $leftPrice <=> $rightPrice;
+        });
+
+        return $options;
+    }
+
+    private function determineSelectedOption(?array $record, array $options, ?string $requestedKey): ?array
+    {
+        if ($requestedKey !== null) {
+            foreach ($options as $option) {
+                if ((string) $option['key'] === $requestedKey) {
+                    return $option;
+                }
+            }
+        }
+
+        if (is_array($record) && !empty($record['tariff_key'])) {
+            foreach ($options as $option) {
+                if ((string) $option['key'] === (string) $record['tariff_key']) {
+                    return $option;
+                }
+            }
+        }
+
+        return $options[0] ?? null;
+    }
+
+    private function saveCartSelection(
+        Cart $cart,
+        string $type,
+        array $selectedOption,
+        array $context,
+        array $options,
+        ?array $record
+    ): void {
+        $payload = json_encode([
+            'signature' => $context['signature'],
+            'options' => $options,
+            'selected_key' => $selectedOption['key'] ?? null,
+            'selected_option' => $selectedOption,
+        ]);
+
+        $data = [
+            'id_cart' => (int) $cart->id,
+            'country_from' => pSQL($context['country_from']),
+            'country_to' => pSQL($context['country_to']),
+            'type' => pSQL($type),
+            'tariff_key' => isset($selectedOption['key']) ? pSQL((string) $selectedOption['key']) : null,
+            'international_tariff_id' => isset($selectedOption['international_tariff_id']) ? (int) $selectedOption['international_tariff_id'] : null,
+            'price_uah' => isset($selectedOption['price_uah']) ? (float) $selectedOption['price_uah'] : null,
+            'price_eur' => isset($selectedOption['price_eur']) ? (float) $selectedOption['price_eur'] : null,
+            'estimate_in_days' => isset($selectedOption['estimate_in_days']) ? (int) $selectedOption['estimate_in_days'] : null,
+            'payload' => $payload !== false ? pSQL($payload, true) : null,
+        ];
+
+        if ($record) {
+            Db::getInstance()->update(
+                'globalpost_order',
+                $data,
+                'id_globalpost_order = ' . (int) $record['id_globalpost_order']
+            );
+        } else {
+            Db::getInstance()->insert('globalpost_order', $data);
+        }
+    }
+
+    private function clearCartSelection(int $cartId, string $type): void
+    {
+        $record = $this->getCartRecord($cartId, $type);
+        if (!$record) {
+            return;
+        }
+
+        Db::getInstance()->update(
+            'globalpost_order',
+            [
+                'tariff_key' => null,
+                'international_tariff_id' => null,
+                'price_uah' => null,
+                'price_eur' => null,
+                'estimate_in_days' => null,
+                'payload' => null,
+            ],
+            'id_globalpost_order = ' . (int) $record['id_globalpost_order']
+        );
+    }
+
+    private function getCartRecord(int $cartId, string $type): ?array
+    {
+        $query = new DbQuery();
+        $query->select('*');
+        $query->from('globalpost_order');
+        $query->where('id_cart = ' . (int) $cartId);
+        $query->where("type = '" . pSQL($type) . "'");
+        $query->orderBy('id_globalpost_order DESC');
+        $query->limit(1);
+
+        $row = Db::getInstance()->getRow($query);
+
+        return $row ?: null;
+    }
+
+    private function decodePayload(?string $payload): array
+    {
+        if ($payload === null || $payload === '') {
+            return [];
+        }
+
+        $decoded = json_decode($payload, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function formatOptionsForTemplate(array $options): array
+    {
+        $formatted = [];
+
+        foreach ($options as $option) {
+            $priceUah = isset($option['price_uah']) ? $this->formatPriceValue((float) $option['price_uah']) : '0.00';
+            $priceEur = isset($option['price_eur']) ? $this->formatPriceValue((float) $option['price_eur']) : null;
+
+            $label = $priceEur !== null
+                ? sprintf($this->translate('front.option_label'), $option['key'], $priceUah, $priceEur)
+                : sprintf($this->translate('front.option_label_no_eur'), $option['key'], $priceUah);
+
+            $estimate = '';
+            if (isset($option['estimate_in_days']) && $option['estimate_in_days'] !== null) {
+                $estimate = sprintf($this->translate('front.estimate_days'), (int) $option['estimate_in_days']);
+            }
+
+            $formatted[] = [
+                'key' => $option['key'],
+                'label' => $label,
+                'estimate' => $estimate,
+            ];
+        }
+
+        return $formatted;
+    }
+
+    private function formatPriceValue(float $value): string
+    {
+        return number_format($value, 2, '.', ' ');
+    }
+
+    private function createApiClient(): ?GlobalPostClient
+    {
+        $mode = (int) $this->getConfigurationValue('GLOBALPOST_API_MODE') === 1
+            ? GlobalPostClient::MODE_PROD
+            : GlobalPostClient::MODE_TEST;
+
+        $tokenKey = $mode === GlobalPostClient::MODE_PROD ? 'GLOBALPOST_API_TOKEN_PROD' : 'GLOBALPOST_API_TOKEN_TEST';
+        $token = trim((string) $this->getConfigurationValue($tokenKey));
+
+        if ($token === '') {
+            return null;
+        }
+
+        if ($this->logger === null) {
+            $this->logger = new NullLogger();
+        }
+
+        $config = [
+            'timeout' => 10,
+            'connect_timeout' => 5,
+        ];
+
+        if (defined('_PS_MODE_DEV_') && _PS_MODE_DEV_) {
+            $config['debug'] = true;
+        }
+
+        try {
+            return new GlobalPostClient($token, $mode, $config, null, $this->logger);
+        } catch (Throwable $exception) {
+            $this->logError('Failed to initialise GlobalPost client: ' . $exception->getMessage());
+
+            return null;
+        }
+    }
+
+    private function convertPriceForCart(float $priceUah, Cart $cart): float
+    {
+        $currencyId = (int) $cart->id_currency;
+        if ($currencyId <= 0) {
+            return $priceUah;
+        }
+
+        $currency = new Currency($currencyId);
+        if (!Validate::isLoadedObject($currency)) {
+            return $priceUah;
+        }
+
+        $converted = $this->convertPriceBetweenCurrencies($priceUah, 'UAH', $currency->iso_code);
+
+        return $converted !== null ? $converted : $priceUah;
+    }
+
+    private function convertPriceBetweenCurrencies(float $amount, string $fromIso, string $toIso): ?float
+    {
+        if (strcasecmp($fromIso, $toIso) === 0) {
+            return $amount;
+        }
+
+        $fromId = Currency::getIdByIsoCode($fromIso);
+        $toId = Currency::getIdByIsoCode($toIso);
+
+        if (!$fromId || !$toId) {
+            return null;
+        }
+
+        $fromCurrency = new Currency($fromId);
+        $toCurrency = new Currency($toId);
+
+        return (float) Tools::convertPriceFull($amount, $fromCurrency, $toCurrency);
+    }
+
+    private function logError(string $message): void
+    {
+        PrestaShopLogger::addLog($message, 2, null, $this->name, null, true);
+    }
+
 
     /**
      * Retrieves configuration from user input.
