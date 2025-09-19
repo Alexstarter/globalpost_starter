@@ -15,6 +15,8 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     require_once __DIR__ . '/vendor/autoload.php';
 }
 
+require_once __DIR__ . '/src/Installer/DatabaseInstaller.php';
+
 use GlobalPostShipping\Error\ErrorMapper;
 use GlobalPostShipping\Installer\DatabaseInstaller;
 use GlobalPostShipping\Logger\PrestaShopLoggerAdapter;
