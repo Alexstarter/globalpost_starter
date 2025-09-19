@@ -175,6 +175,38 @@ class Globalpostshipping extends CarrierModule
             'error.tracking_invalid_chars' => 'Tracking URL template contains invalid characters.',
             'error.tracking_placeholder' => 'Tracking URL template must include the @ placeholder.',
             'error.document_language' => 'Invalid document language selected.',
+            'admin.block_title' => 'GlobalPost',
+            'admin.type.documents' => 'Documents',
+            'admin.type.parcel' => 'Parcel',
+            'admin.label.status' => 'Status',
+            'admin.label.tariff' => 'Tariff details',
+            'admin.label.tariff_key' => 'Option key',
+            'admin.label.tariff_id' => 'Tariff ID',
+            'admin.label.price' => 'Price',
+            'admin.label.estimate' => 'Delivery time',
+            'admin.label.shipment_id' => 'Shipment ID',
+            'admin.label.ttn' => 'Tracking number',
+            'admin.label.tracking_url' => 'Tracking link',
+            'admin.label.last_message' => 'Last message',
+            'admin.status.pending' => 'Awaiting creation',
+            'admin.status.success' => 'Shipment created',
+            'admin.status.failed' => 'Creation failed',
+            'admin.estimate_days' => '%s business days',
+            'admin.button.create' => 'Create shipment',
+            'admin.button.download_label' => 'Download label (PDF)',
+            'admin.button.download_invoice' => 'Download invoice (PDF)',
+            'admin.notice.created' => 'Shipment was created successfully.',
+            'admin.notice.already_created' => 'Shipment has already been created.',
+            'admin.error.invalid_order' => 'The order could not be found.',
+            'admin.error.record_missing' => 'No GlobalPost data is stored for this order.',
+            'admin.error.cart_missing' => 'The original cart linked to the order is missing.',
+            'admin.error.creation_failed' => 'Failed to create the shipment. Check the GlobalPost log for details.',
+            'admin.error.permission' => 'You do not have permission to perform this action.',
+            'admin.error.shipment_missing' => 'Shipment identifiers are not available for this order.',
+            'admin.error.invoice_unavailable' => 'Invoices are only available for parcel shipments.',
+            'admin.error.api_unavailable' => 'GlobalPost API token is not configured.',
+            'admin.error.api_error' => 'Failed to download the document from GlobalPost.',
+            'admin.error.empty_document' => 'GlobalPost returned an empty document.',
         ],
         'ru' => [
             'carrier.documents_name' => 'GlobalPost Документы',
@@ -251,6 +283,38 @@ class Globalpostshipping extends CarrierModule
             'error.tracking_invalid_chars' => 'Шаблон ссылки отслеживания содержит недопустимые символы.',
             'error.tracking_placeholder' => 'Шаблон ссылки отслеживания должен содержать плейсхолдер @.',
             'error.document_language' => 'Выбран неверный язык документов.',
+            'admin.block_title' => 'GlobalPost',
+            'admin.type.documents' => 'Документы',
+            'admin.type.parcel' => 'Посылка',
+            'admin.label.status' => 'Статус',
+            'admin.label.tariff' => 'Детали тарифа',
+            'admin.label.tariff_key' => 'Ключ опции',
+            'admin.label.tariff_id' => 'ID тарифа',
+            'admin.label.price' => 'Стоимость',
+            'admin.label.estimate' => 'Срок доставки',
+            'admin.label.shipment_id' => 'ID отправления',
+            'admin.label.ttn' => 'Номер отслеживания',
+            'admin.label.tracking_url' => 'Ссылка для отслеживания',
+            'admin.label.last_message' => 'Последнее сообщение',
+            'admin.status.pending' => 'Ожидает создания',
+            'admin.status.success' => 'Отправление создано',
+            'admin.status.failed' => 'Ошибка при создании',
+            'admin.estimate_days' => '%s раб. дней',
+            'admin.button.create' => 'Создать отправление',
+            'admin.button.download_label' => 'Скачать накладную (PDF)',
+            'admin.button.download_invoice' => 'Скачать инвойс (PDF)',
+            'admin.notice.created' => 'Отправление успешно создано.',
+            'admin.notice.already_created' => 'Отправление уже создано.',
+            'admin.error.invalid_order' => 'Заказ не найден.',
+            'admin.error.record_missing' => 'Для этого заказа нет данных GlobalPost.',
+            'admin.error.cart_missing' => 'Исходная корзина заказа не найдена.',
+            'admin.error.creation_failed' => 'Не удалось создать отправление. Проверьте лог GlobalPost.',
+            'admin.error.permission' => 'У вас нет прав для выполнения действия.',
+            'admin.error.shipment_missing' => 'Идентификаторы отправления недоступны для этого заказа.',
+            'admin.error.invoice_unavailable' => 'Инвойс доступен только для посылок.',
+            'admin.error.api_unavailable' => 'Токен API GlobalPost не настроен.',
+            'admin.error.api_error' => 'Не удалось загрузить документ GlobalPost.',
+            'admin.error.empty_document' => 'GlobalPost вернул пустой документ.',
         ],
         'uk' => [
             'carrier.documents_name' => 'GlobalPost Документи',
@@ -327,6 +391,38 @@ class Globalpostshipping extends CarrierModule
             'error.tracking_invalid_chars' => 'Шаблон посилання відстеження містить недопустимі символи.',
             'error.tracking_placeholder' => 'Шаблон посилання відстеження має містити плейсхолдер @.',
             'error.document_language' => 'Обрано некоректну мову документів.',
+            'admin.block_title' => 'GlobalPost',
+            'admin.type.documents' => 'Документи',
+            'admin.type.parcel' => 'Посилка',
+            'admin.label.status' => 'Статус',
+            'admin.label.tariff' => 'Деталі тарифу',
+            'admin.label.tariff_key' => 'Ключ опції',
+            'admin.label.tariff_id' => 'ID тарифу',
+            'admin.label.price' => 'Вартість',
+            'admin.label.estimate' => 'Термін доставки',
+            'admin.label.shipment_id' => 'ID відправлення',
+            'admin.label.ttn' => 'Номер відстеження',
+            'admin.label.tracking_url' => 'Посилання для відстеження',
+            'admin.label.last_message' => 'Останнє повідомлення',
+            'admin.status.pending' => 'Очікує створення',
+            'admin.status.success' => 'Відправлення створено',
+            'admin.status.failed' => 'Помилка створення',
+            'admin.estimate_days' => '%s роб. днів',
+            'admin.button.create' => 'Створити відправлення',
+            'admin.button.download_label' => 'Завантажити накладну (PDF)',
+            'admin.button.download_invoice' => 'Завантажити інвойс (PDF)',
+            'admin.notice.created' => 'Відправлення успішно створено.',
+            'admin.notice.already_created' => 'Відправлення вже створено.',
+            'admin.error.invalid_order' => 'Замовлення не знайдено.',
+            'admin.error.record_missing' => 'Для цього замовлення немає даних GlobalPost.',
+            'admin.error.cart_missing' => 'Початковий кошик замовлення не знайдено.',
+            'admin.error.creation_failed' => 'Не вдалося створити відправлення. Перевірте журнал GlobalPost.',
+            'admin.error.permission' => 'У вас недостатньо прав для виконання цієї дії.',
+            'admin.error.shipment_missing' => 'Ідентифікатори відправлення недоступні для цього замовлення.',
+            'admin.error.invoice_unavailable' => 'Інвойс доступний лише для посилок.',
+            'admin.error.api_unavailable' => 'API-токен GlobalPost не налаштовано.',
+            'admin.error.api_error' => 'Не вдалося завантажити документ GlobalPost.',
+            'admin.error.empty_document' => 'GlobalPost повернув порожній документ.',
         ],
     ];
 
@@ -792,6 +888,281 @@ class Globalpostshipping extends CarrierModule
         }
     }
 
+    public function hookDisplayAdminOrderMainBottom(array $params)
+    {
+        $order = $this->resolveOrderFromParams($params);
+        if (!$order instanceof Order || !(int) $order->id) {
+            return '';
+        }
+
+        $record = $this->getLatestOrderRecord((int) $order->id);
+        if (!$record) {
+            return '';
+        }
+
+        $data = $this->buildAdminOrderViewData($order, $record);
+        if ($data === null) {
+            return '';
+        }
+
+        $flash = $this->buildAdminFlashMessage();
+        if ($flash !== null) {
+            $data['flash'] = $flash;
+        }
+
+        $this->context->smarty->assign([
+            'globalpost_admin' => $data,
+        ]);
+
+        return $this->display(__FILE__, 'views/templates/hook/admin_order.tpl');
+    }
+
+    private function buildAdminFlashMessage(): ?array
+    {
+        $notice = trim((string) Tools::getValue('globalpost_notice'));
+        if ($notice !== '') {
+            return [
+                'type' => 'success',
+                'message' => $this->translate('admin.notice.' . $notice),
+            ];
+        }
+
+        $error = trim((string) Tools::getValue('globalpost_error'));
+        if ($error !== '') {
+            return [
+                'type' => 'error',
+                'message' => $this->translate('admin.error.' . $error),
+            ];
+        }
+
+        return null;
+    }
+
+    private function buildAdminOrderViewData(Order $order, array $record): ?array
+    {
+        $type = $this->normalizeShipmentType($record['type'] ?? null);
+        if ($type === null) {
+            $type = $this->normalizeShipmentType($this->resolveCarrierType((int) $order->id_carrier));
+        }
+
+        if ($type === null) {
+            $type = 'parcel';
+        }
+
+        $selectedOption = $this->resolveSelectedOptionFromRecord($record) ?? [];
+
+        $tariffKey = $record['tariff_key'] ?? ($selectedOption['key'] ?? '');
+        $tariffId = $record['international_tariff_id'] ?? ($selectedOption['international_tariff_id'] ?? null);
+        $priceUah = $record['price_uah'] ?? ($selectedOption['price_uah'] ?? ($selectedOption['price'] ?? null));
+        $priceEur = $record['price_eur'] ?? ($selectedOption['price_eur'] ?? null);
+        $estimateRaw = $record['estimate_in_days'] ?? ($selectedOption['estimate_in_days'] ?? null);
+        $estimate = is_numeric($estimateRaw) ? (int) $estimateRaw : null;
+        if ($estimate !== null && $estimate < 0) {
+            $estimate = null;
+        }
+
+        $status = $this->summarizeShipmentStatus($record);
+
+        $priceText = null;
+        if ($priceUah !== null) {
+            $priceText = sprintf('%s UAH', $this->formatPriceValue((float) $priceUah));
+            if ($priceEur !== null) {
+                $priceText .= ' / ' . sprintf('%s EUR', $this->formatPriceValue((float) $priceEur));
+            }
+        } elseif ($priceEur !== null) {
+            $priceText = sprintf('%s EUR', $this->formatPriceValue((float) $priceEur));
+        }
+
+        $estimateText = null;
+        if ($estimate !== null && $estimate > 0) {
+            $estimateText = sprintf($this->translate('admin.estimate_days'), $estimate);
+        }
+
+        $trackingUrl = $this->buildTrackingUrl($record['ttn'] ?? null);
+
+        $actions = [];
+        if ($status['code'] !== 'success') {
+            $actions['create'] = [
+                'url' => $this->context->link->getAdminLink('AdminGlobalPostShipments', true, [], [
+                    'action' => 'createShipment',
+                    'id_order' => (int) $order->id,
+                ]),
+                'label' => $this->translate('admin.button.create'),
+            ];
+        }
+
+        if (!empty($record['shipment_id'])) {
+            $actions['label'] = [
+                'url' => $this->context->link->getAdminLink('AdminGlobalPostShipments', true, [], [
+                    'action' => 'downloadLabel',
+                    'id_order' => (int) $order->id,
+                ]),
+                'label' => $this->translate('admin.button.download_label'),
+            ];
+
+            if ($type === 'parcel') {
+                $actions['invoice'] = [
+                    'url' => $this->context->link->getAdminLink('AdminGlobalPostShipments', true, [], [
+                        'action' => 'downloadInvoice',
+                        'id_order' => (int) $order->id,
+                    ]),
+                    'label' => $this->translate('admin.button.download_invoice'),
+                ];
+            }
+        }
+
+        return [
+            'title' => $this->translate('admin.block_title'),
+            'type_label' => $this->translate('admin.type.' . $type),
+            'order_id' => (int) $order->id,
+            'labels' => [
+                'status' => $this->translate('admin.label.status'),
+                'tariff' => $this->translate('admin.label.tariff'),
+                'tariff_key' => $this->translate('admin.label.tariff_key'),
+                'tariff_id' => $this->translate('admin.label.tariff_id'),
+                'price' => $this->translate('admin.label.price'),
+                'estimate' => $this->translate('admin.label.estimate'),
+                'shipment_id' => $this->translate('admin.label.shipment_id'),
+                'ttn' => $this->translate('admin.label.ttn'),
+                'tracking' => $this->translate('admin.label.tracking_url'),
+                'last_message' => $this->translate('admin.label.last_message'),
+            ],
+            'status' => [
+                'code' => $status['code'],
+                'label' => $this->translate('admin.status.' . $status['code']),
+                'badge' => $status['badge'],
+                'message' => $status['message'],
+            ],
+            'tariff' => [
+                'key' => (string) $tariffKey,
+                'id' => $tariffId !== null ? (string) $tariffId : '',
+                'price_text' => $priceText,
+                'estimate_text' => $estimateText,
+            ],
+            'shipment_id' => (string) ($record['shipment_id'] ?? ''),
+            'ttn' => (string) ($record['ttn'] ?? ''),
+            'tracking_url' => $trackingUrl,
+            'actions' => $actions,
+        ];
+    }
+
+    private function summarizeShipmentStatus(array $record): array
+    {
+        $payload = $this->decodePayload($record['payload'] ?? null);
+        $entries = [];
+
+        if (!empty($payload['shipment_logs']) && is_array($payload['shipment_logs'])) {
+            foreach ($payload['shipment_logs'] as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $entries[] = [
+                    'status' => isset($entry['status']) ? (string) $entry['status'] : '',
+                    'message' => isset($entry['message']) ? (string) $entry['message'] : '',
+                ];
+            }
+        }
+
+        $status = 'pending';
+        $message = '';
+
+        if (!empty($entries)) {
+            $last = $entries[count($entries) - 1];
+            if (!empty($last['status'])) {
+                $status = Tools::strtolower((string) $last['status']);
+            }
+
+            if (!empty($last['message'])) {
+                $message = (string) $last['message'];
+            }
+        }
+
+        if ($status === 'error') {
+            $status = 'failed';
+        }
+
+        if (!in_array($status, ['pending', 'success', 'failed'], true)) {
+            $status = 'pending';
+        }
+
+        if ($status === 'pending' && !empty($record['shipment_id']) && !empty($record['ttn'])) {
+            $status = 'success';
+        }
+
+        $badge = 'secondary';
+        if ($status === 'success') {
+            $badge = 'success';
+        } elseif ($status === 'failed') {
+            $badge = 'danger';
+        } else {
+            $badge = 'warning';
+        }
+
+        return [
+            'code' => $status,
+            'badge' => $badge,
+            'message' => $message,
+        ];
+    }
+
+    private function normalizeShipmentType($type): ?string
+    {
+        if (!is_string($type) || $type === '') {
+            return null;
+        }
+
+        $normalized = Tools::strtolower($type);
+
+        if ($normalized === 'docs') {
+            $normalized = 'documents';
+        }
+
+        return in_array($normalized, ['documents', 'parcel'], true) ? $normalized : null;
+    }
+
+    private function buildTrackingUrl($ttn): ?string
+    {
+        $trackingNumber = trim((string) $ttn);
+        if ($trackingNumber === '') {
+            return null;
+        }
+
+        $template = (string) $this->getConfigurationValue('GLOBALPOST_TRACKING_TEMPLATE');
+        if ($template === '' || strpos($template, '@') === false) {
+            return null;
+        }
+
+        return str_replace('@', rawurlencode($trackingNumber), $template);
+    }
+
+    private function buildDocumentFileName(string $prefix, array $record): string
+    {
+        $identifier = '';
+        if (!empty($record['ttn'])) {
+            $identifier = (string) $record['ttn'];
+        } elseif (!empty($record['shipment_id'])) {
+            $identifier = (string) $record['shipment_id'];
+        }
+
+        $identifier = trim($identifier);
+        if ($identifier === '') {
+            $identifier = 'shipment';
+        }
+
+        $sanitized = preg_replace('/[^A-Za-z0-9\-_]+/', '-', $identifier);
+        if (!is_string($sanitized) || $sanitized === '') {
+            $sanitized = 'shipment';
+        }
+
+        $sanitized = trim($sanitized, '-');
+        if ($sanitized === '') {
+            $sanitized = 'shipment';
+        }
+
+        return sprintf('%s-%s.pdf', $prefix, $sanitized);
+    }
+
     private function createShipmentForOrder(Order $order, Cart $cart, string $type): void
     {
         $record = $this->getOrderRecordByOrderId((int) $order->id, $type);
@@ -862,17 +1233,164 @@ class Globalpostshipping extends CarrierModule
 
     private function getOrderRecordByOrderId(int $orderId, string $type): ?array
     {
+        return $this->getOrderRecord($orderId, $type);
+    }
+
+    private function getOrderRecord(int $orderId, ?string $type = null): ?array
+    {
         $query = new DbQuery();
         $query->select('*');
         $query->from('globalpost_order');
         $query->where('id_order = ' . (int) $orderId);
-        $query->where("type = '" . pSQL($type) . "'");
+        if ($type !== null && $type !== '') {
+            $query->where("type = '" . pSQL($type) . "'");
+        }
         $query->orderBy('id_globalpost_order DESC');
         $query->limit(1);
 
         $row = Db::getInstance()->getRow($query);
 
         return $row ?: null;
+    }
+
+    private function getOrderRecordById(int $recordId): ?array
+    {
+        $query = new DbQuery();
+        $query->select('*');
+        $query->from('globalpost_order');
+        $query->where('id_globalpost_order = ' . (int) $recordId);
+        $query->limit(1);
+
+        $row = Db::getInstance()->getRow($query);
+
+        return $row ?: null;
+    }
+
+    private function getLatestOrderRecord(int $orderId): ?array
+    {
+        return $this->getOrderRecord($orderId, null);
+    }
+
+    public function handleManualShipmentCreation(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            $this->logError('Manual GlobalPost shipment creation failed: invalid order ID.');
+
+            return ['success' => false, 'code' => 'invalid_order'];
+        }
+
+        $order = new Order($orderId);
+        if (!Validate::isLoadedObject($order)) {
+            $this->logError('Manual GlobalPost shipment creation failed: order #' . (int) $orderId . ' not found.');
+
+            return ['success' => false, 'code' => 'invalid_order'];
+        }
+
+        $cart = new Cart((int) $order->id_cart);
+        if (!Validate::isLoadedObject($cart)) {
+            $this->logError('Manual GlobalPost shipment creation failed: cart not found for order #' . (int) $orderId . '.');
+
+            return ['success' => false, 'code' => 'cart_missing'];
+        }
+
+        $type = $this->resolveCarrierType((int) $order->id_carrier);
+        $record = null;
+
+        if ($type !== null) {
+            $record = $this->getOrderRecordByOrderId((int) $order->id, $type);
+        }
+
+        if (!$record) {
+            $record = $this->getLatestOrderRecord((int) $order->id);
+            if ($record) {
+                $type = $this->normalizeShipmentType($record['type'] ?? null);
+            }
+        }
+
+        if (!$record || $type === null) {
+            $this->logError('Manual GlobalPost shipment creation failed: no stored tariff data for order #' . (int) $orderId . '.');
+
+            return ['success' => false, 'code' => 'record_missing'];
+        }
+
+        if (!empty($record['shipment_id']) && !empty($record['ttn'])) {
+            return ['success' => true, 'code' => 'already_created'];
+        }
+
+        $this->createShipmentForOrder($order, $cart, $type);
+
+        $updatedRecord = $this->getOrderRecordById((int) $record['id_globalpost_order']);
+        if (!$updatedRecord) {
+            $updatedRecord = $this->getOrderRecordByOrderId((int) $order->id, $type);
+        }
+
+        if (!empty($updatedRecord['shipment_id']) && !empty($updatedRecord['ttn'])) {
+            return ['success' => true, 'code' => 'created'];
+        }
+
+        return ['success' => false, 'code' => 'creation_failed'];
+    }
+
+    public function fetchShipmentDocument(int $orderId, string $document): array
+    {
+        if ($orderId <= 0) {
+            return ['success' => false, 'code' => 'invalid_order'];
+        }
+
+        $order = new Order($orderId);
+        if (!Validate::isLoadedObject($order)) {
+            return ['success' => false, 'code' => 'invalid_order'];
+        }
+
+        $record = $this->getLatestOrderRecord((int) $order->id);
+        if (!$record || empty($record['shipment_id'])) {
+            $this->logError('GlobalPost document download failed: shipment data missing for order #' . (int) $orderId . '.');
+
+            return ['success' => false, 'code' => 'shipment_missing'];
+        }
+
+        $type = $this->normalizeShipmentType($record['type'] ?? null);
+        if ($document === 'invoice' && $type !== 'parcel') {
+            return ['success' => false, 'code' => 'invoice_unavailable'];
+        }
+
+        $client = $this->createApiClient();
+        if ($client === null) {
+            $this->logError('GlobalPost document download failed: API token not configured.');
+
+            return ['success' => false, 'code' => 'api_unavailable'];
+        }
+
+        try {
+            if ($document === 'label') {
+                $locale = $this->resolveDocumentLanguage((string) $this->getConfigurationValue('GLOBALPOST_DOCUMENT_LANGUAGE'));
+                $content = $client->printLabel($locale, (string) $record['shipment_id']);
+                $filename = $this->buildDocumentFileName('globalpost-label', $record);
+            } else {
+                $content = $client->printInvoice((string) $record['shipment_id']);
+                $filename = $this->buildDocumentFileName('globalpost-invoice', $record);
+            }
+        } catch (GlobalPostClientException $exception) {
+            $this->logError('GlobalPost document download failed: ' . $exception->getMessage());
+
+            return ['success' => false, 'code' => 'api_error'];
+        } catch (Throwable $exception) {
+            $this->logError('GlobalPost document download failed: ' . $exception->getMessage());
+
+            return ['success' => false, 'code' => 'api_error'];
+        }
+
+        if ($content === '') {
+            $this->logError('GlobalPost document download failed: empty response for order #' . (int) $orderId . '.');
+
+            return ['success' => false, 'code' => 'empty_document'];
+        }
+
+        return [
+            'success' => true,
+            'filename' => $filename,
+            'content' => $content,
+        ];
     }
 
     private function buildShipmentFormData(Order $order, Cart $cart, string $type, array $record): ?array
@@ -1613,6 +2131,31 @@ class Globalpostshipping extends CarrierModule
         }
 
         return null;
+    }
+
+    private function resolveOrderFromParams(array $params): ?Order
+    {
+        if (!empty($params['order']) && $params['order'] instanceof Order) {
+            return $params['order'];
+        }
+
+        $orderId = 0;
+
+        if (!empty($params['id_order'])) {
+            $orderId = (int) $params['id_order'];
+        }
+
+        if ($orderId <= 0) {
+            $orderId = (int) Tools::getValue('id_order');
+        }
+
+        if ($orderId <= 0) {
+            return null;
+        }
+
+        $order = new Order($orderId);
+
+        return Validate::isLoadedObject($order) ? $order : null;
     }
 
     private function getEnabledShipmentTypes(): array
