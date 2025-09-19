@@ -37,6 +37,8 @@ class Globalpostshipping extends CarrierModule
         'displayAdminOrderMainBottom',
         'displayCarrierExtraContent',
         'actionGetDeliveryOptions',
+        'displayOrderDetail',
+        'actionGetExtraMailTemplateVars',
     ];
 
     /**
@@ -159,6 +161,9 @@ class Globalpostshipping extends CarrierModule
             'front.option_label' => '%s – %s UAH (%s EUR)',
             'front.option_label_no_eur' => '%s – %s UAH',
             'front.estimate_days' => 'Estimated delivery: %s days',
+            'front.tracking_title' => 'Shipment tracking',
+            'front.tracking_number_label' => 'Tracking number',
+            'front.tracking_link_label' => 'Track shipment',
             'error.test_token' => 'Test API token contains invalid characters.',
             'error.prod_token' => 'Production API token contains invalid characters.',
             'error.api_mode' => 'Invalid API mode provided.',
@@ -267,6 +272,9 @@ class Globalpostshipping extends CarrierModule
             'front.option_label' => '%s – %s грн (%s евро)',
             'front.option_label_no_eur' => '%s – %s грн',
             'front.estimate_days' => 'Прогноз доставки: %s дн.',
+            'front.tracking_title' => 'Отслеживание отправления',
+            'front.tracking_number_label' => 'Номер отслеживания',
+            'front.tracking_link_label' => 'Отследить отправление',
             'error.test_token' => 'Тестовый API-токен содержит недопустимые символы.',
             'error.prod_token' => 'Рабочий API-токен содержит недопустимые символы.',
             'error.api_mode' => 'Указан неверный режим API.',
@@ -375,6 +383,9 @@ class Globalpostshipping extends CarrierModule
             'front.option_label' => '%s – %s грн (%s євро)',
             'front.option_label_no_eur' => '%s – %s грн',
             'front.estimate_days' => 'Орієнтовна доставка: %s дн.',
+            'front.tracking_title' => 'Відстеження відправлення',
+            'front.tracking_number_label' => 'Номер відстеження',
+            'front.tracking_link_label' => 'Відстежити відправлення',
             'error.test_token' => 'Тестовий API-токен містить недопустимі символи.',
             'error.prod_token' => 'Робочий API-токен містить недопустимі символи.',
             'error.api_mode' => 'Вказано некоректний режим API.',
@@ -917,6 +928,81 @@ class Globalpostshipping extends CarrierModule
         return $this->display(__FILE__, 'views/templates/hook/admin_order.tpl');
     }
 
+    public function hookDisplayOrderDetail(array $params)
+    {
+        $order = $this->resolveOrderFromParams($params);
+        if (!$order instanceof Order || !(int) $order->id) {
+            return '';
+        }
+
+        $record = $this->getLatestOrderRecord((int) $order->id);
+        if (!$record) {
+            return '';
+        }
+
+        $trackingNumber = trim((string) ($record['ttn'] ?? ''));
+        if ($trackingNumber === '') {
+            return '';
+        }
+
+        $this->updateTrackingNumber($order, $trackingNumber);
+        $trackingUrl = $this->buildTrackingUrl($trackingNumber);
+
+        $this->context->smarty->assign([
+            'globalpost_tracking' => [
+                'title' => $this->translate('front.tracking_title'),
+                'label_number' => $this->translate('front.tracking_number_label'),
+                'label_link' => $this->translate('front.tracking_link_label'),
+                'number' => $trackingNumber,
+                'url' => $trackingUrl,
+            ],
+        ]);
+
+        return $this->display(__FILE__, 'views/templates/hook/order_tracking.tpl');
+    }
+
+    public function hookActionGetExtraMailTemplateVars(array $params)
+    {
+        if (($params['template'] ?? '') !== 'shipped') {
+            return [];
+        }
+
+        $orderId = (int) ($params['id_order'] ?? 0);
+        if ($orderId <= 0) {
+            return [];
+        }
+
+        $order = new Order($orderId);
+        if (!Validate::isLoadedObject($order)) {
+            return [];
+        }
+
+        $record = $this->getLatestOrderRecord((int) $order->id);
+        if (!$record) {
+            return [];
+        }
+
+        $trackingNumber = trim((string) ($record['ttn'] ?? ''));
+        if ($trackingNumber === '') {
+            return [];
+        }
+
+        $this->updateTrackingNumber($order, $trackingNumber);
+        $trackingUrl = $this->buildTrackingUrl($trackingNumber);
+
+        $templateVars = [
+            '{shipping_number}' => $trackingNumber,
+            '{globalpost_tracking_number}' => $trackingNumber,
+        ];
+
+        if ($trackingUrl !== null) {
+            $templateVars['{followup}'] = $trackingUrl;
+            $templateVars['{globalpost_tracking_url}'] = $trackingUrl;
+        }
+
+        return $templateVars;
+    }
+
     private function buildAdminFlashMessage(): ?array
     {
         $notice = trim((string) Tools::getValue('globalpost_notice'));
@@ -961,6 +1047,11 @@ class Globalpostshipping extends CarrierModule
             $estimate = null;
         }
 
+        $trackingNumber = trim((string) ($record['ttn'] ?? ''));
+        if ($trackingNumber !== '') {
+            $this->updateTrackingNumber($order, $trackingNumber);
+        }
+
         $status = $this->summarizeShipmentStatus($record);
 
         $priceText = null;
@@ -978,7 +1069,7 @@ class Globalpostshipping extends CarrierModule
             $estimateText = sprintf($this->translate('admin.estimate_days'), $estimate);
         }
 
-        $trackingUrl = $this->buildTrackingUrl($record['ttn'] ?? null);
+        $trackingUrl = $this->buildTrackingUrl($trackingNumber);
 
         $actions = [];
         if ($status['code'] !== 'success') {
@@ -1040,7 +1131,7 @@ class Globalpostshipping extends CarrierModule
                 'estimate_text' => $estimateText,
             ],
             'shipment_id' => (string) ($record['shipment_id'] ?? ''),
-            'ttn' => (string) ($record['ttn'] ?? ''),
+            'ttn' => $trackingNumber,
             'tracking_url' => $trackingUrl,
             'actions' => $actions,
         ];
@@ -2032,25 +2123,42 @@ class Globalpostshipping extends CarrierModule
             return;
         }
 
-        Db::getInstance()->update(
-            'orders',
-            ['shipping_number' => pSQL($trackingNumber)],
-            'id_order = ' . (int) $order->id
-        );
-
+        $currentOrderTracking = trim((string) $order->shipping_number);
         $orderCarrierId = (int) Db::getInstance()->getValue(
             'SELECT id_order_carrier FROM `' . _DB_PREFIX_ . 'order_carrier` WHERE id_order = ' . (int) $order->id . ' ORDER BY id_order_carrier DESC'
         );
 
+        $orderCarrier = null;
+        $currentCarrierTracking = '';
+
         if ($orderCarrierId > 0) {
-            $orderCarrier = new OrderCarrier($orderCarrierId);
-            if (Validate::isLoadedObject($orderCarrier)) {
-                $orderCarrier->tracking_number = $trackingNumber;
-                try {
-                    $orderCarrier->save();
-                } catch (Throwable $exception) {
-                    // ignore persistence errors for tracking update
-                }
+            $candidate = new OrderCarrier($orderCarrierId);
+            if (Validate::isLoadedObject($candidate)) {
+                $orderCarrier = $candidate;
+                $currentCarrierTracking = trim((string) $orderCarrier->tracking_number);
+            }
+        }
+
+        if ($currentOrderTracking === $trackingNumber && $currentCarrierTracking === $trackingNumber) {
+            return;
+        }
+
+        if ($currentOrderTracking !== $trackingNumber) {
+            Db::getInstance()->update(
+                'orders',
+                ['shipping_number' => pSQL($trackingNumber)],
+                'id_order = ' . (int) $order->id
+            );
+
+            $order->shipping_number = $trackingNumber;
+        }
+
+        if ($orderCarrier !== null && $currentCarrierTracking !== $trackingNumber) {
+            $orderCarrier->tracking_number = $trackingNumber;
+            try {
+                $orderCarrier->save();
+            } catch (Throwable $exception) {
+                // ignore persistence errors for tracking update
             }
         }
     }
