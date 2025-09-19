@@ -216,6 +216,16 @@ class Globalpostshipping extends CarrierModule
         'purpose.sample' => 'Commercial sample',
         'settings.legend' => 'GlobalPost settings',
         'settings.saved' => 'Settings updated successfully.',
+        'settings.carriers_title' => 'Configured GlobalPost carriers',
+        'settings.carriers_type' => 'Shipment type',
+        'settings.carriers_id' => 'Carrier ID',
+        'settings.carriers_name' => 'Carrier name',
+        'settings.carriers_delay' => 'Delay (current language)',
+        'settings.carriers_default' => 'Default status',
+        'settings.carriers_default_yes' => 'Default carrier',
+        'settings.carriers_default_no' => 'Not default',
+        'settings.carriers_missing' => 'Carrier record is missing or was deleted.',
+        'settings.carriers_empty' => 'No GlobalPost carriers are configured yet.',
         'tracking.hint' => 'Use @ as a placeholder for the tracking number.',
         'tracking.template' => 'Tracking URL template',
         'types.available' => 'Shipment type mode',
@@ -314,7 +324,37 @@ class Globalpostshipping extends CarrierModule
             }
         }
 
-        return $output . $this->renderForm();
+        $carrierSummary = $this->buildCarrierSummaryForSettings();
+        $hasMissingCarrier = false;
+
+        foreach ($carrierSummary as $carrier) {
+            if (!empty($carrier['missing'])) {
+                $hasMissingCarrier = true;
+
+                break;
+            }
+        }
+
+        $this->context->smarty->assign([
+            'globalpost_carriers' => $carrierSummary,
+            'globalpost_carriers_missing' => $hasMissingCarrier,
+            'globalpost_carriers_labels' => [
+                'title' => $this->translate('settings.carriers_title'),
+                'type' => $this->translate('settings.carriers_type'),
+                'id' => $this->translate('settings.carriers_id'),
+                'name' => $this->translate('settings.carriers_name'),
+                'delay' => $this->translate('settings.carriers_delay'),
+                'default' => $this->translate('settings.carriers_default'),
+                'default_yes' => $this->translate('settings.carriers_default_yes'),
+                'default_no' => $this->translate('settings.carriers_default_no'),
+                'missing' => $this->translate('settings.carriers_missing'),
+                'empty' => $this->translate('settings.carriers_empty'),
+            ],
+        ]);
+
+        return $output
+            . $this->renderForm()
+            . $this->display(__FILE__, 'views/templates/admin/form.tpl');
     }
 
     /**
@@ -481,6 +521,7 @@ class Globalpostshipping extends CarrierModule
         $carrier->need_range = true;
         $carrier->url = (string) $this->getConfigurationValue('GLOBALPOST_TRACKING_TEMPLATE');
         $carrier->shipping_method = Carrier::SHIPPING_METHOD_WEIGHT;
+        $carrier->is_default = 0;
 
         foreach (Language::getLanguages(false) as $language) {
             $carrier->delay[(int) $language['id_lang']] = $this->translate('carrier.default_delay');
@@ -2904,6 +2945,44 @@ class Globalpostshipping extends CarrierModule
         ];
 
         return $helper->generateForm([$this->getConfigForm()]);
+    }
+
+    private function buildCarrierSummaryForSettings(): array
+    {
+        $summary = [];
+
+        foreach (self::SUPPORTED_SHIPMENT_TYPES as $type) {
+            $carrierId = $this->getCarrierIdForType($type);
+            $carrierData = [
+                'type' => $type,
+                'type_label' => $this->translate('admin.type.' . $type),
+                'id_carrier' => $carrierId,
+                'name' => '',
+                'delay' => '',
+                'is_default' => false,
+                'missing' => true,
+            ];
+
+            if ($carrierId > 0) {
+                $carrier = new Carrier($carrierId);
+
+                if (Validate::isLoadedObject($carrier)) {
+                    $carrierData['name'] = $carrier->name;
+
+                    $languageId = (int) $this->context->language->id;
+                    if (isset($carrier->delay[$languageId])) {
+                        $carrierData['delay'] = (string) $carrier->delay[$languageId];
+                    }
+
+                    $carrierData['is_default'] = (bool) ($carrier->is_default ?? false);
+                    $carrierData['missing'] = false;
+                }
+            }
+
+            $summary[] = $carrierData;
+        }
+
+        return $summary;
     }
 
     /**
