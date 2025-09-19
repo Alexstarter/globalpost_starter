@@ -48,6 +48,16 @@ composer install
 
 This command will generate the `vendor/` folder and the Composer autoloader used by PrestaShop when loading the module classes.
 
+## Packaging for Releases
+
+Create the installable archive locally once your changes are merged by running the following from the repository root:
+
+```bash
+zip -r dist/globalpostshipping.zip modules/globalpostshipping
+```
+
+The generated ZIP should be attached to your release or deployment channel (e.g. uploaded to a GitHub release) and must not be committed back into the Git repository.
+
 ## License
 
 This module is released under the Academic Free License 3.0 (AFL-3.0).
