@@ -3010,6 +3010,7 @@ class Globalpostshipping extends CarrierModule
     private function buildCarrierSummaryForSettings(): array
     {
         $summary = [];
+        $defaultCarrierId = (int) Configuration::get('PS_CARRIER_DEFAULT');
 
         foreach (self::SUPPORTED_SHIPMENT_TYPES as $type) {
             $carrierId = $this->getCarrierIdForType($type);
@@ -3019,7 +3020,7 @@ class Globalpostshipping extends CarrierModule
                 'id_carrier' => $carrierId,
                 'name' => '',
                 'delay' => '',
-                'is_default' => false,
+                'is_default' => 0,
                 'missing' => true,
             ];
 
@@ -3034,7 +3035,7 @@ class Globalpostshipping extends CarrierModule
                         $carrierData['delay'] = (string) $carrier->delay[$languageId];
                     }
 
-                    $carrierData['is_default'] = (bool) ($carrier->is_default ?? false);
+                    $carrierData['is_default'] = ((int) $carrier->id === $defaultCarrierId) ? 1 : 0;
                     $carrierData['missing'] = false;
                 }
             }

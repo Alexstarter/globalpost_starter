@@ -31,7 +31,8 @@
               </td>
               <td>{if !empty($carrier.delay)}{$carrier.delay|escape:'html':'UTF-8'}{else}&mdash;{/if}</td>
               <td>
-                {if $carrier.is_default|default:false}
+                {assign var=isDefault value=$carrier.is_default|default:0}
+                {if $isDefault}
                   <span class="badge badge-success">{$globalpost_carriers_labels.default_yes|escape:'html':'UTF-8'}</span>
                 {else}
                   <span class="badge badge-secondary">{$globalpost_carriers_labels.default_no|escape:'html':'UTF-8'}</span>
