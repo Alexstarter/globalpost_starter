@@ -1,7 +1,14 @@
 {if isset($globalpost_carriers) && $globalpost_carriers|@count > 0}
 <div class="card mt-3">
-  <div class="card-header">
+  <div class="card-header d-flex justify-content-between align-items-center">
     <h3 class="card-title mb-0">{$globalpost_carriers_labels.title|escape:'html':'UTF-8'}</h3>
+    {if isset($globalpost_repair_action)}
+      <form method="post" action="{$globalpost_repair_action|escape:'html':'UTF-8'}" class="mb-0">
+        <button type="submit" name="{$globalpost_repair_submit|escape:'html':'UTF-8'}" class="btn btn-outline-primary">
+          {$globalpost_repair_label|escape:'html':'UTF-8'}
+        </button>
+      </form>
+    {/if}
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -51,7 +58,14 @@
   {/if}
 </div>
 {elseif isset($globalpost_carriers_labels)}
-  <div class="alert alert-info mt-3">
-    {$globalpost_carriers_labels.empty|escape:'html':'UTF-8'}
+  <div class="alert alert-info mt-3 d-flex justify-content-between align-items-center">
+    <span>{$globalpost_carriers_labels.empty|escape:'html':'UTF-8'}</span>
+    {if isset($globalpost_repair_action)}
+      <form method="post" action="{$globalpost_repair_action|escape:'html':'UTF-8'}" class="mb-0">
+        <button type="submit" name="{$globalpost_repair_submit|escape:'html':'UTF-8'}" class="btn btn-outline-primary">
+          {$globalpost_repair_label|escape:'html':'UTF-8'}
+        </button>
+      </form>
+    {/if}
   </div>
 {/if}

@@ -228,6 +228,8 @@ class Globalpostshipping extends CarrierModule
         'settings.carriers_default_no' => 'Not default',
         'settings.carriers_missing' => 'Carrier record is missing or was deleted.',
         'settings.carriers_empty' => 'No GlobalPost carriers are configured yet.',
+        'settings.repair_carriers_button' => 'Repair carriers',
+        'settings.repair_carriers_notice' => 'Carriers were repaired and re-linked successfully.',
         'tracking.hint' => 'Use @ as a placeholder for the tracking number.',
         'tracking.template' => 'Tracking URL template',
         'types.available' => 'Shipment type mode',
@@ -312,6 +314,17 @@ class Globalpostshipping extends CarrierModule
     {
         $output = '';
 
+        if (Tools::isSubmit('submitGlobalpostshippingRepairCarriers')) {
+            if ($this->isValidConfigurationRequest()) {
+                $this->updateConfigurationValue('GLOBALPOST_CARRIER_DOCUMENTS_ID', 0);
+                $this->updateConfigurationValue('GLOBALPOST_CARRIER_PARCEL_ID', 0);
+                $this->installCarriers();
+                $output .= $this->displayConfirmation($this->translate('settings.repair_carriers_notice'));
+            } else {
+                $output .= $this->displayError($this->translate('admin.error.permission'));
+            }
+        }
+
         if (Tools::isSubmit('submitGlobalpostshippingModule')) {
             $formData = $this->getFormValuesFromRequest();
             $errors = $this->validateForm($formData);
@@ -353,6 +366,18 @@ class Globalpostshipping extends CarrierModule
                 'missing' => $this->translate('settings.carriers_missing'),
                 'empty' => $this->translate('settings.carriers_empty'),
             ],
+            'globalpost_repair_action' => $this->context->link->getAdminLink(
+                'AdminModules',
+                true,
+                [],
+                [
+                    'configure' => $this->name,
+                    'tab_module' => $this->tab,
+                    'module_name' => $this->name,
+                ]
+            ),
+            'globalpost_repair_submit' => 'submitGlobalpostshippingRepairCarriers',
+            'globalpost_repair_label' => $this->translate('settings.repair_carriers_button'),
         ]);
 
         return $output
@@ -3044,6 +3069,18 @@ class Globalpostshipping extends CarrierModule
         }
 
         return $summary;
+    }
+
+    private function isValidConfigurationRequest(): bool
+    {
+        $expectedToken = Tools::getAdminTokenLite('AdminModules');
+        $providedToken = Tools::getValue('token');
+
+        if (!is_string($providedToken) || $providedToken === '') {
+            return false;
+        }
+
+        return hash_equals($expectedToken, $providedToken);
     }
 
     /**
