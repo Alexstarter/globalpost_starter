@@ -15,7 +15,9 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     require_once __DIR__ . '/vendor/autoload.php';
 }
 
+use GlobalPostShipping\Error\ErrorMapper;
 use GlobalPostShipping\Installer\DatabaseInstaller;
+use GlobalPostShipping\Logger\PrestaShopLoggerAdapter;
 use GlobalPostShipping\SDK\GlobalPostClient;
 use GlobalPostShipping\SDK\GlobalPostClientException;
 use GlobalPostShipping\SDK\LoggerInterface;
@@ -66,6 +68,7 @@ class Globalpostshipping extends CarrierModule
         'GLOBALPOST_AUTO_CREATE_SHIPMENT',
         'GLOBALPOST_TRACKING_TEMPLATE',
         'GLOBALPOST_DOCUMENT_LANGUAGE',
+        'GLOBALPOST_DEBUG_LOG',
     ];
 
     /**
@@ -110,6 +113,16 @@ class Globalpostshipping extends CarrierModule
         'admin.error.api_unavailable' => 'GlobalPost API token is not configured.',
         'admin.error.cart_missing' => 'The original cart linked to the order is missing.',
         'admin.error.creation_failed' => 'Failed to create the shipment. Check the GlobalPost log for details.',
+        'admin.error.api_bad_request' => 'GlobalPost rejected the shipment data. Validate the address and contact details.',
+        'admin.error.api_auth_failed' => 'GlobalPost authentication failed. Check the API token in the module settings.',
+        'admin.error.api_forbidden' => 'Access to the GlobalPost API was denied. Contact GlobalPost support.',
+        'admin.error.api_not_found' => 'GlobalPost could not find the requested resource.',
+        'admin.error.api_conflict' => 'A shipment with the same reference already exists in GlobalPost.',
+        'admin.error.api_validation_failed' => 'GlobalPost validation failed for the shipment payload.',
+        'admin.error.api_rate_limited' => 'Too many requests were sent to GlobalPost. Try again in a few minutes.',
+        'admin.error.api_service_unavailable' => 'GlobalPost service is temporarily unavailable. Try again later.',
+        'admin.error.api_transport' => 'Failed to connect to the GlobalPost API. Please retry.',
+        'admin.error.validation_failed' => 'Shipment contains invalid contact details. Update the address, phone or email.',
         'admin.error.empty_document' => 'GlobalPost returned an empty document.',
         'admin.error.invalid_order' => 'The order could not be found.',
         'admin.error.invoice_unavailable' => 'Invoices are only available for parcel shipments.',
@@ -160,6 +173,7 @@ class Globalpostshipping extends CarrierModule
         'document.language' => 'Document language',
         'error.api_mode' => 'Invalid API mode provided.',
         'error.autocreate' => 'Invalid auto-creation option provided.',
+        'error.debug_flag' => 'Invalid debug logging option.',
         'error.country' => 'Origin country must be a valid ISO code (e.g. UA).',
         'error.currency' => 'Invalid invoice currency selected.',
         'error.dimensions' => 'Dimensions must be positive numbers.',
@@ -211,6 +225,8 @@ class Globalpostshipping extends CarrierModule
         'types.mode_documents' => 'Documents only',
         'types.mode_parcel' => 'Parcels only',
         'types.parcel' => 'Parcel',
+        'settings.debug' => 'Enable debug logging',
+        'settings.debug_desc' => 'Logs sanitized API calls for troubleshooting. Disable once issues are resolved.',
     ];
 
     /**
@@ -352,6 +368,7 @@ class Globalpostshipping extends CarrierModule
             'GLOBALPOST_AUTO_CREATE_SHIPMENT' => 1,
             'GLOBALPOST_TRACKING_TEMPLATE' => 'https://track.globalpost.com.ua/@',
             'GLOBALPOST_DOCUMENT_LANGUAGE' => 'uk',
+            'GLOBALPOST_DEBUG_LOG' => 0,
         ];
 
         foreach ($defaults as $key => $value) {
@@ -814,6 +831,14 @@ class Globalpostshipping extends CarrierModule
             ];
         }
 
+        $errorMessage = trim((string) Tools::getValue('globalpost_error_message'));
+        if ($errorMessage !== '') {
+            return [
+                'type' => 'error',
+                'message' => Tools::htmlentitiesUTF8($errorMessage),
+            ];
+        }
+
         $error = trim((string) Tools::getValue('globalpost_error'));
         if ($error !== '') {
             return [
@@ -1055,55 +1080,82 @@ class Globalpostshipping extends CarrierModule
         return sprintf('%s-%s.pdf', $prefix, $sanitized);
     }
 
-    private function createShipmentForOrder(Order $order, Cart $cart, string $type): void
+    private function createShipmentForOrder(Order $order, Cart $cart, string $type): array
     {
+        $result = ['success' => false, 'code' => 'creation_failed'];
+
         $record = $this->getOrderRecordByOrderId((int) $order->id, $type);
         if (!$record) {
-            return;
+            return $result;
         }
 
         if (!empty($record['shipment_id']) || !empty($record['ttn'])) {
-            return;
+            return ['success' => true, 'code' => 'already_created'];
         }
 
         $client = $this->createApiClient();
         if ($client === null) {
+            $message = $this->translate('admin.error.api_unavailable');
             $this->logError('GlobalPost API token is not configured.');
 
-            return;
+            return ['success' => false, 'code' => 'api_unavailable', 'message' => $message];
         }
 
         $formData = $this->buildShipmentFormData($order, $cart, $type, $record);
         if ($formData === null) {
             $this->logError('Failed to assemble GlobalPost shipment payload for order #' . (int) $order->id . '.');
 
-            return;
+            return $result;
+        }
+
+        $validationErrors = $this->validateShipmentPayload($formData);
+        if (!empty($validationErrors)) {
+            $message = $this->translate('admin.error.validation_failed');
+            $this->storeShipmentLog($record, $formData, null, 'failed', $message, [
+                'validation_errors' => $validationErrors,
+            ]);
+            $this->logError('GlobalPost shipment creation aborted: invalid contact data.');
+
+            return ['success' => false, 'code' => 'validation_failed', 'message' => $message];
         }
 
         try {
             $response = $client->createShortOrder($formData);
         } catch (GlobalPostClientException $exception) {
+            $mapped = ErrorMapper::fromClientException($exception);
             $responseBody = $exception->getResponseBody();
             $decoded = $responseBody ? json_decode($responseBody, true) : null;
-            $this->storeShipmentLog($record, $formData, is_array($decoded) ? $decoded : $responseBody, 'failed', $exception->getMessage());
-            $this->logError('GlobalPost shipment creation failed: ' . $exception->getMessage());
+            $this->storeShipmentLog(
+                $record,
+                $formData,
+                is_array($decoded) ? $decoded : $responseBody,
+                'failed',
+                $mapped['admin_message'],
+                [
+                    'http_status' => $mapped['status'],
+                    'api_code' => $mapped['api_code'],
+                ]
+            );
+            $this->logError('GlobalPost shipment creation failed: ' . $mapped['log_message']);
 
-            return;
+            return ['success' => false, 'code' => $mapped['code'], 'message' => $mapped['admin_message']];
         } catch (Throwable $exception) {
-            $this->storeShipmentLog($record, $formData, null, 'failed', $exception->getMessage());
-            $this->logError('GlobalPost shipment creation failed: ' . $exception->getMessage());
+            $mapped = ErrorMapper::fromTransportException($exception);
+            $this->storeShipmentLog($record, $formData, null, 'failed', $mapped['admin_message']);
+            $this->logError('GlobalPost shipment creation failed: ' . $mapped['log_message']);
 
-            return;
+            return ['success' => false, 'code' => $mapped['code'], 'message' => $mapped['admin_message']];
         }
 
         $shipmentId = isset($response['id']) ? (string) $response['id'] : '';
         $ttn = isset($response['number']) ? (string) $response['number'] : '';
 
         if ($shipmentId === '' || $ttn === '') {
-            $this->storeShipmentLog($record, $formData, $response, 'failed', 'GlobalPost response missing shipment identifiers.');
+            $message = 'GlobalPost response missing shipment identifiers.';
+            $this->storeShipmentLog($record, $formData, $response, 'failed', $message);
             $this->logError('GlobalPost shipment creation failed: response did not contain shipment identifiers.');
 
-            return;
+            return ['success' => false, 'code' => 'creation_failed', 'message' => $message];
         }
 
         $this->updateTrackingNumber($order, $ttn);
@@ -1121,6 +1173,8 @@ class Globalpostshipping extends CarrierModule
             ],
             'id_globalpost_order = ' . (int) $record['id_globalpost_order']
         );
+
+        return ['success' => true, 'code' => 'created'];
     }
 
     private function getOrderRecordByOrderId(int $orderId, string $type): ?array
@@ -1209,7 +1263,11 @@ class Globalpostshipping extends CarrierModule
             return ['success' => true, 'code' => 'already_created'];
         }
 
-        $this->createShipmentForOrder($order, $cart, $type);
+        $creationResult = $this->createShipmentForOrder($order, $cart, $type);
+
+        if (!empty($creationResult['success'])) {
+            return ['success' => true, 'code' => $creationResult['code'] ?? 'created'];
+        }
 
         $updatedRecord = $this->getOrderRecordById((int) $record['id_globalpost_order']);
         if (!$updatedRecord) {
@@ -1220,37 +1278,45 @@ class Globalpostshipping extends CarrierModule
             return ['success' => true, 'code' => 'created'];
         }
 
+        if (!empty($creationResult['code'])) {
+            return [
+                'success' => false,
+                'code' => (string) $creationResult['code'],
+                'message' => isset($creationResult['message']) ? (string) $creationResult['message'] : null,
+            ];
+        }
+
         return ['success' => false, 'code' => 'creation_failed'];
     }
 
     public function fetchShipmentDocument(int $orderId, string $document): array
     {
         if ($orderId <= 0) {
-            return ['success' => false, 'code' => 'invalid_order'];
+            return ['success' => false, 'code' => 'invalid_order', 'message' => $this->translate('admin.error.invalid_order')];
         }
 
         $order = new Order($orderId);
         if (!Validate::isLoadedObject($order)) {
-            return ['success' => false, 'code' => 'invalid_order'];
+            return ['success' => false, 'code' => 'invalid_order', 'message' => $this->translate('admin.error.invalid_order')];
         }
 
         $record = $this->getLatestOrderRecord((int) $order->id);
         if (!$record || empty($record['shipment_id'])) {
             $this->logError('GlobalPost document download failed: shipment data missing for order #' . (int) $orderId . '.');
 
-            return ['success' => false, 'code' => 'shipment_missing'];
+            return ['success' => false, 'code' => 'shipment_missing', 'message' => $this->translate('admin.error.shipment_missing')];
         }
 
         $type = $this->normalizeShipmentType($record['type'] ?? null);
         if ($document === 'invoice' && $type !== 'parcel') {
-            return ['success' => false, 'code' => 'invoice_unavailable'];
+            return ['success' => false, 'code' => 'invoice_unavailable', 'message' => $this->translate('admin.error.invoice_unavailable')];
         }
 
         $client = $this->createApiClient();
         if ($client === null) {
             $this->logError('GlobalPost document download failed: API token not configured.');
 
-            return ['success' => false, 'code' => 'api_unavailable'];
+            return ['success' => false, 'code' => 'api_unavailable', 'message' => $this->translate('admin.error.api_unavailable')];
         }
 
         try {
@@ -1263,19 +1329,21 @@ class Globalpostshipping extends CarrierModule
                 $filename = $this->buildDocumentFileName('globalpost-invoice', $record);
             }
         } catch (GlobalPostClientException $exception) {
-            $this->logError('GlobalPost document download failed: ' . $exception->getMessage());
+            $mapped = ErrorMapper::fromClientException($exception);
+            $this->logError('GlobalPost document download failed: ' . $mapped['log_message']);
 
-            return ['success' => false, 'code' => 'api_error'];
+            return ['success' => false, 'code' => $mapped['code'], 'message' => $mapped['admin_message']];
         } catch (Throwable $exception) {
-            $this->logError('GlobalPost document download failed: ' . $exception->getMessage());
+            $mapped = ErrorMapper::fromTransportException($exception);
+            $this->logError('GlobalPost document download failed: ' . $mapped['log_message']);
 
-            return ['success' => false, 'code' => 'api_error'];
+            return ['success' => false, 'code' => $mapped['code'], 'message' => $mapped['admin_message']];
         }
 
         if ($content === '') {
             $this->logError('GlobalPost document download failed: empty response for order #' . (int) $orderId . '.');
 
-            return ['success' => false, 'code' => 'empty_document'];
+            return ['success' => false, 'code' => 'empty_document', 'message' => $this->translate('admin.error.empty_document')];
         }
 
         return [
@@ -1384,6 +1452,41 @@ class Globalpostshipping extends CarrierModule
         }
 
         return $formData;
+    }
+
+    private function validateShipmentPayload(array $formData): array
+    {
+        $errors = [];
+
+        foreach (['sender_name', 'recipient_name'] as $field) {
+            $value = isset($formData[$field]) ? trim((string) $formData[$field]) : '';
+            if ($value === '' || Tools::strlen($value) < 2) {
+                $errors[] = ['field' => $field, 'error' => 'required'];
+            }
+        }
+
+        foreach (['sender_address', 'recipient_address', 'sender_city', 'recipient_city'] as $field) {
+            $value = isset($formData[$field]) ? trim((string) $formData[$field]) : '';
+            if ($value === '' || Tools::strlen($value) < 3) {
+                $errors[] = ['field' => $field, 'error' => 'invalid'];
+            }
+        }
+
+        foreach (['sender_phone', 'recipient_phone'] as $field) {
+            $value = isset($formData[$field]) ? (string) $formData[$field] : '';
+            if ($value === '' || !Validate::isPhoneNumber($value)) {
+                $errors[] = ['field' => $field, 'error' => 'invalid_phone'];
+            }
+        }
+
+        foreach (['sender_email', 'recipient_email'] as $field) {
+            $value = isset($formData[$field]) ? (string) $formData[$field] : '';
+            if ($value === '' || !Validate::isEmail($value)) {
+                $errors[] = ['field' => $field, 'error' => 'invalid_email'];
+            }
+        }
+
+        return $errors;
     }
 
     private function resolveSelectedOptionFromRecord(array $record): ?array
@@ -1873,6 +1976,19 @@ class Globalpostshipping extends CarrierModule
                         $sanitized[$key] = $this->maskPhone((string) $value);
                     } elseif (in_array((string) $key, ['sender_email', 'recipient_email'], true)) {
                         $sanitized[$key] = $this->maskEmail((string) $value);
+                    } elseif (in_array((string) $key, [
+                        'sender_name',
+                        'recipient_name',
+                        'sender_address',
+                        'recipient_address',
+                        'sender_city',
+                        'recipient_city',
+                        'sender_zip',
+                        'recipient_zip',
+                        'sender_state',
+                        'recipient_state',
+                    ], true)) {
+                        $sanitized[$key] = $this->maskText((string) $value);
                     } else {
                         $sanitized[$key] = $value;
                     }
@@ -1915,6 +2031,21 @@ class Globalpostshipping extends CarrierModule
         $maskedLocal = $visible . str_repeat('*', max(0, Tools::strlen($local) - 1));
 
         return $maskedLocal . '@' . $domain;
+    }
+
+    private function maskText(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $length = Tools::strlen($value);
+        if ($length <= 2) {
+            return str_repeat('*', $length);
+        }
+
+        return Tools::substr($value, 0, 1) . str_repeat('*', $length - 2) . Tools::substr($value, -1);
     }
 
     private function updateTrackingNumber(Order $order, string $ttn): void
@@ -2522,16 +2653,25 @@ class Globalpostshipping extends CarrierModule
             return null;
         }
 
+        $debugEnabled = (int) $this->getConfigurationValue('GLOBALPOST_DEBUG_LOG') === 1;
+        if (defined('_PS_MODE_DEV_') && _PS_MODE_DEV_) {
+            $debugEnabled = true;
+        }
+
         if ($this->logger === null) {
-            $this->logger = new NullLogger();
+            $this->logger = class_exists('PrestaShopLogger')
+                ? new PrestaShopLoggerAdapter($this->name)
+                : new NullLogger();
         }
 
         $config = [
             'timeout' => 10,
             'connect_timeout' => 5,
+            'max_retries' => 2,
+            'retry_delay' => 1.0,
         ];
 
-        if (defined('_PS_MODE_DEV_') && _PS_MODE_DEV_) {
+        if ($debugEnabled) {
             $config['debug'] = true;
         }
 
@@ -2642,6 +2782,7 @@ class Globalpostshipping extends CarrierModule
             'GLOBALPOST_AUTO_CREATE_SHIPMENT' => (int) Tools::getValue('GLOBALPOST_AUTO_CREATE_SHIPMENT', 0),
             'GLOBALPOST_TRACKING_TEMPLATE' => Tools::getValue('GLOBALPOST_TRACKING_TEMPLATE'),
             'GLOBALPOST_DOCUMENT_LANGUAGE' => Tools::getValue('GLOBALPOST_DOCUMENT_LANGUAGE'),
+            'GLOBALPOST_DEBUG_LOG' => (int) Tools::getValue('GLOBALPOST_DEBUG_LOG', 0),
         ];
     }
 
@@ -2709,6 +2850,10 @@ class Globalpostshipping extends CarrierModule
 
         if (!in_array((int) $formData['GLOBALPOST_AUTO_CREATE_SHIPMENT'], [0, 1], true)) {
             $errors[] = 'error.autocreate';
+        }
+
+        if (!in_array((int) $formData['GLOBALPOST_DEBUG_LOG'], [0, 1], true)) {
+            $errors[] = 'error.debug_flag';
         }
 
         if (!Validate::isCleanHtml($formData['GLOBALPOST_TRACKING_TEMPLATE'])) {
@@ -2938,6 +3083,25 @@ class Globalpostshipping extends CarrierModule
                                 'label' => $this->translate('common.enabled'),
                             ],
                         ],
+                    ],
+                    [
+                        'type' => 'switch',
+                        'label' => $this->translate('settings.debug'),
+                        'name' => 'GLOBALPOST_DEBUG_LOG',
+                        'is_bool' => true,
+                        'values' => [
+                            [
+                                'id' => 'debug_off',
+                                'value' => 0,
+                                'label' => $this->translate('common.disabled'),
+                            ],
+                            [
+                                'id' => 'debug_on',
+                                'value' => 1,
+                                'label' => $this->translate('common.enabled'),
+                            ],
+                        ],
+                        'desc' => $this->translate('settings.debug_desc'),
                     ],
                     [
                         'type' => 'text',

@@ -34,6 +34,10 @@ When the option **Auto-create shipment after order confirmation** is enabled the
 
 An example of the stored log structure is available in [`docs/logs/sample_auto_shipment_log.json`](../../docs/logs/sample_auto_shipment_log.json).
 
+### Debug logging and troubleshooting
+
+Enable the **Enable debug logging** switch in the module settings when you need to troubleshoot API issues. Sanitised request metadata and retry attempts are written to the PrestaShop log without exposing personal data or credentials. Disable the switch once finished and consult [`docs/error-handling.md`](../../docs/error-handling.md) for the list of mapped error codes.
+
 ## Development
 
 Install Composer dependencies and enable PSR-4 autoloading with:

@@ -17,21 +17,21 @@
                 "price": 899.5,
                 "insured": 1,
                 "insured_amount": 899.5,
-                "sender_name": "GlobalPost Shop",
+                "sender_name": "G***********p",
                 "sender_phone": "********56",
                 "sender_email": "s***@example.com",
                 "sender_country": "UA",
-                "sender_city": "Kyiv",
-                "sender_address": "1 Volodymyrska St",
-                "sender_zip": "01001",
+                "sender_city": "K**v",
+                "sender_address": "1**************t",
+                "sender_zip": "0***1",
                 "sender_state": "KV",
-                "recipient_name": "John Doe",
+                "recipient_name": "J*******e",
                 "recipient_phone": "********89",
                 "recipient_email": "j***@customer.com",
                 "recipient_country": "US",
-                "recipient_city": "New York",
-                "recipient_address": "350 Fifth Avenue",
-                "recipient_zip": "10001",
+                "recipient_city": "N*******k",
+                "recipient_address": "3***************e",
+                "recipient_zip": "1***1",
                 "recipient_state": "NY",
                 "length": 30.0,
                 "width": 20.0,
@@ -88,7 +88,15 @@
                 "error": "validation_error",
                 "message": "Weight must be greater than zero"
             },
-            "message": "GlobalPost shipment creation failed: Weight must be greater than zero"
+            "message": "GlobalPost validation failed for the shipment payload.",
+            "meta": {
+                "validation_errors": [
+                    {
+                        "field": "sender_phone",
+                        "error": "invalid_phone"
+                    }
+                ]
+            }
         }
     ]
 }

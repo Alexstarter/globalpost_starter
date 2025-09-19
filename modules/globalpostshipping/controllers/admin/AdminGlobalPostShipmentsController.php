@@ -66,7 +66,12 @@ class AdminGlobalPostShipmentsController extends ModuleAdminController
         }
 
         $code = isset($result['code']) ? (string) $result['code'] : 'creation_failed';
-        $this->redirectToOrder($orderId, ['globalpost_error' => $code]);
+        $params = ['globalpost_error' => $code];
+        if (!empty($result['message']) && is_string($result['message'])) {
+            $params['globalpost_error_message'] = strip_tags($result['message']);
+        }
+
+        $this->redirectToOrder($orderId, $params);
     }
 
     private function processDownloadDocument(string $type): void
@@ -93,7 +98,12 @@ class AdminGlobalPostShipmentsController extends ModuleAdminController
         $result = $this->module->fetchShipmentDocument($orderId, $type === 'invoice' ? 'invoice' : 'label');
         if (empty($result['success'])) {
             $code = isset($result['code']) ? (string) $result['code'] : 'api_error';
-            $this->redirectToOrder($orderId, ['globalpost_error' => $code]);
+            $params = ['globalpost_error' => $code];
+            if (!empty($result['message']) && is_string($result['message'])) {
+                $params['globalpost_error_message'] = strip_tags($result['message']);
+            }
+
+            $this->redirectToOrder($orderId, $params);
         }
 
         $filename = isset($result['filename']) ? (string) $result['filename'] : 'globalpost-document.pdf';
