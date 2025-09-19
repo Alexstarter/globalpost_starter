@@ -338,6 +338,8 @@ class Globalpostshipping extends CarrierModule
      */
     private function getDatabaseInstaller(): DatabaseInstaller
     {
+        require_once _PS_MODULE_DIR_ . 'globalpostshipping/src/Installer/DatabaseInstaller.php';
+
         return new DatabaseInstaller(Db::getInstance(), _DB_PREFIX_, _MYSQL_ENGINE_);
     }
 
