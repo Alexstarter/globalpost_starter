@@ -318,6 +318,7 @@ class Globalpostshipping extends CarrierModule
 
             if (empty($errors)) {
                 $this->saveConfiguration($formData);
+                $this->installCarriers();
                 $output .= $this->displayConfirmation($this->translate('settings.saved'));
             } else {
                 foreach ($errors as $error) {
@@ -494,6 +495,9 @@ class Globalpostshipping extends CarrierModule
         if ($carrierId > 0) {
             $carrier = new Carrier($carrierId);
             if (Validate::isLoadedObject($carrier)) {
+                $this->configureCarrier($carrier, $type);
+                $this->ensureCarrierRelations($carrier);
+
                 return true;
             }
         }
@@ -533,11 +537,60 @@ class Globalpostshipping extends CarrierModule
             return null;
         }
 
-        $this->assignCarrierToGroups($carrier);
-        $this->assignCarrierToZones($carrier);
-        $this->initializeCarrierRanges($carrier);
+        $this->configureCarrier($carrier, $type);
+        $this->ensureCarrierRelations($carrier);
 
         return $carrier;
+    }
+
+    private function configureCarrier(Carrier $carrier, string $type): void
+    {
+        $carrier->name = $this->getCarrierName($type);
+        $carrier->id_tax_rules_group = 0;
+        $carrier->active = 1;
+        $carrier->deleted = 0;
+        $carrier->shipping_handling = false;
+        $carrier->range_behavior = 0;
+        $carrier->is_module = true;
+        $carrier->shipping_external = true;
+        $carrier->external_module_name = $this->name;
+        $carrier->need_range = true;
+        $carrier->url = (string) $this->getConfigurationValue('GLOBALPOST_TRACKING_TEMPLATE');
+        $carrier->shipping_method = Carrier::SHIPPING_METHOD_WEIGHT;
+        $carrier->is_default = 0;
+
+        $carrier->update();
+    }
+
+    private function ensureCarrierRelations(Carrier $carrier): void
+    {
+        $this->associateCarrierToAllShops($carrier);
+        $this->assignCarrierToGroups($carrier);
+        $this->assignCarrierToZones($carrier);
+        $this->ensureCarrierRanges($carrier);
+    }
+
+    private function associateCarrierToAllShops(Carrier $carrier): void
+    {
+        $shopIds = Shop::getShops(true, null, true);
+        if (!is_array($shopIds) || empty($shopIds)) {
+            return;
+        }
+
+        if (method_exists($carrier, 'associateTo')) {
+            $carrier->associateTo($shopIds);
+
+            return;
+        }
+
+        Db::getInstance()->delete('carrier_shop', 'id_carrier = ' . (int) $carrier->id);
+
+        foreach ($shopIds as $shopId) {
+            Db::getInstance()->insert('carrier_shop', [
+                'id_carrier' => (int) $carrier->id,
+                'id_shop' => (int) $shopId,
+            ]);
+        }
     }
 
     private function assignCarrierToGroups(Carrier $carrier): void
@@ -579,8 +632,16 @@ class Globalpostshipping extends CarrierModule
         }
     }
 
-    private function initializeCarrierRanges(Carrier $carrier): void
+    private function ensureCarrierRanges(Carrier $carrier): void
     {
+        $rangeExists = (bool) Db::getInstance()->getValue(
+            'SELECT 1 FROM `' . _DB_PREFIX_ . 'range_weight` WHERE id_carrier = ' . (int) $carrier->id
+        );
+
+        if ($rangeExists) {
+            return;
+        }
+
         $rangeWeight = new RangeWeight();
         $rangeWeight->id_carrier = (int) $carrier->id;
         $rangeWeight->delimiter1 = 0;
@@ -597,9 +658,6 @@ class Globalpostshipping extends CarrierModule
 
         Db::getInstance()->delete('delivery', 'id_carrier = ' . (int) $carrier->id);
 
-        $idShop = isset($this->context->shop->id) ? (int) $this->context->shop->id : 0;
-        $idShopGroup = isset($this->context->shop->id_shop_group) ? (int) $this->context->shop->id_shop_group : 0;
-
         foreach ($zones as $zone) {
             Db::getInstance()->insert('delivery', [
                 'id_carrier' => (int) $carrier->id,
@@ -607,8 +665,8 @@ class Globalpostshipping extends CarrierModule
                 'id_range_weight' => (int) $rangeWeight->id,
                 'id_zone' => (int) $zone['id_zone'],
                 'price' => 0,
-                'id_shop' => $idShop,
-                'id_shop_group' => $idShopGroup,
+                'id_shop' => 0,
+                'id_shop_group' => 0,
             ]);
         }
     }
